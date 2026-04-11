@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Post,
+  Query,
   Req,
   Res,
   UseGuards,
@@ -29,26 +30,29 @@ export class AuthController {
   }
 
   @Post('signin')
-  async signin(@Body() dto: LoginRequestDto, @Res() res: Response) {
-    const { accessToken, refreshToken } = await this.authService.signin(dto);
+  async signin(
+    @Body() dto: LoginRequestDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { accessToken, refreshToken,user } = await this.authService.signin(dto);
 
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
       secure: true,
-      sameSite: 'none',
-      domain: process.env.COOKIE_DOMAIN || 'localhost',
+      sameSite: 'lax',
+      maxAge: 5 * 60 * 60 * 1000, // 5 hours
       path: '/',
     });
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: true,
-      sameSite: 'none',
-      domain: process.env.COOKIE_DOMAIN || 'localhost',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/',
     });
 
-    return res.json({ success: true });
+    return res.json({ success: true, user });
   }
 
   @Post('forget-password')
@@ -80,8 +84,6 @@ export class AuthController {
 
   @Get('google')
   @UseGuards(AuthGuard('google'))
-  async googleAuth() {}
-
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
   async googleCallback(@Req() req: any, @Res() res: Response) {
@@ -104,7 +106,7 @@ export class AuthController {
       path: '/',
     });
 
-    return res.redirect(process.env.FRONTEND_URL || 'http://localhost:3000');
+    return res.redirect(process.env.FRONTEND_URL || 'http://localhost:5300');
   }
 
   @Get('me')
@@ -119,5 +121,10 @@ export class AuthController {
     res.clearCookie('refreshToken');
 
     return res.json({ success: true });
+  }
+
+  @Get('check-username')
+  checkUsername(@Query('username') username: string) {
+    return this.authService.checkUsername(username);
   }
 }

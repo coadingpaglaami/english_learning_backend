@@ -72,8 +72,10 @@ export class AuthService {
       });
     }
 
+    const {password,...updatedUser} =user
+
     return {
-      user,
+      updatedUser,
       message: 'Signup successful',
     };
   }
@@ -166,7 +168,6 @@ export class AuthService {
     const payload = await this.jwtService.verifyAsync(dto.token, {
       secret: process.env.JWT_SECRET,
     });
-    
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
@@ -186,5 +187,19 @@ export class AuthService {
     });
 
     return this.generateTokens(payload);
+  }
+
+  async checkUsername(username: string) {
+    if (!username) {
+      return { available: false };
+    }
+
+    const existing = await this.prisma.studentProfile.findUnique({
+      where: { username },
+    });
+
+    return {
+      available: !existing,
+    };
   }
 }

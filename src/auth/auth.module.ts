@@ -9,6 +9,8 @@ import { MailModule } from 'src/mail/mail.module';
 import { GoogleStrategy } from './google.strategy';
 import { JwtStrategy } from './jwt.strategy';
 
+  console.log('JWT_SECRET: on auth module', process.env.JWT_SECRET);
+
 @Module({
   imports: [
     PrismaModule,
@@ -18,7 +20,7 @@ import { JwtStrategy } from './jwt.strategy';
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
         secret: configService.get<string>('JWT_SECRET'),
-        signOptions: { expiresIn: '5h' },
+        signOptions: { expiresIn: configService.get<number>('JWT_EXPIRES_IN') || '15m' },
       }),
       inject: [ConfigService],
     }),
