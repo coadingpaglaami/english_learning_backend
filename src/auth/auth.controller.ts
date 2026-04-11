@@ -34,7 +34,9 @@ export class AuthController {
     @Body() dto: LoginRequestDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const { accessToken, refreshToken,user } = await this.authService.signin(dto);
+    const { accessToken, refreshToken,user } =
+      await this.authService.signin(dto);
+      const { password, ...userResponse} =user
 
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
@@ -51,8 +53,8 @@ export class AuthController {
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/',
     });
-
-    return res.json({ success: true, user });
+    console.log('User signed in:', userResponse); // Debugging line to check the user object
+    return { success: true, userResponse };
   }
 
   @Post('forget-password')
@@ -112,7 +114,10 @@ export class AuthController {
   @Get('me')
   @UseGuards(AuthGuard('jwt'))
   getMe(@Req() req: any) {
-    return req.user;
+    console.log('User info from JWT:', req.user); // Debugging line to check the user object
+    const { sub, email, role } = req.user;
+
+    return { sub, email, role };
   }
 
   @Post('logout')
