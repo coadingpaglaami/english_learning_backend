@@ -8,6 +8,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MailModule } from 'src/mail/mail.module';
 import { GoogleStrategy } from './google.strategy';
 import { JwtStrategy } from './jwt.strategy';
+import { GuardModule } from 'src/guards/guard.module';
 
   console.log('JWT_SECRET: on auth module', process.env.JWT_SECRET);
 
@@ -26,6 +27,7 @@ import { JwtStrategy } from './jwt.strategy';
     }),
 
     MailModule,
+    GuardModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, GoogleStrategy, JwtStrategy],

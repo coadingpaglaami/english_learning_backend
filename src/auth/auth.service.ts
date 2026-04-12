@@ -40,6 +40,10 @@ export class AuthService {
       throw new BadRequestException('User already exists');
     }
 
+    if (dto.role === 'admin') {
+      throw new BadRequestException('Cannot sign up as admin');
+    }
+
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
     const user = await this.prisma.user.create({
@@ -49,6 +53,7 @@ export class AuthService {
         email: dto.email,
         password: hashedPassword,
         role: dto.role,
+        isOnboarded: true,
       },
     });
 
@@ -72,7 +77,7 @@ export class AuthService {
       });
     }
 
-    const {password,...updatedUser} =user
+    const { password, ...updatedUser } = user;
 
     return {
       updatedUser,
@@ -97,6 +102,7 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
+      isOnboarded: user.isOnboarded,
     };
 
     const tokens = await this.generateTokens(payload);
@@ -121,22 +127,21 @@ export class AuthService {
           firstName: googleUser.firstName,
           lastName: googleUser.lastName,
           role: googleUser.roleIntent || 'student',
+          isOnboarded: false, // Force them through onboarding
         },
       });
     }
 
+    // Include isOnboarded in the token payload
     const payload = {
       sub: user.id,
       email: user.email,
       role: user.role,
+      isOnboarded: user.isOnboarded, // <--- Add this
     };
 
     const tokens = await this.generateTokens(payload);
-
-    return {
-      user,
-      ...tokens,
-    };
+    return { user, ...tokens };
   }
 
   async forgetPassword(dto: any) {
@@ -200,6 +205,70 @@ export class AuthService {
 
     return {
       available: !existing,
+    };
+  }
+
+  async completeProfile(userId: string, dto: any) {
+    // 1. Check if user exists
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) throw new NotFoundException('User not found');
+
+    // 2. Use UPSERT instead of update to handle missing profile records
+    if (user.role === 'student') {
+      await this.prisma.studentProfile.upsert({
+        where: { userId: userId },
+        // If profile doesn't exist, create it
+        create: {
+          userId: userId,
+          username: dto.username,
+        },
+        // If profile exists, update it
+        update: {
+          username: dto.username,
+        },
+      });
+    }
+
+    if (user.role === 'teacher') {
+      await this.prisma.teacherProfile.upsert({
+        where: { userId: userId },
+        create: {
+          userId: userId,
+          subject: dto.subject,
+          institution: dto.institution,
+          bio: dto.bio,
+        },
+        update: {
+          subject: dto.subject,
+          institution: dto.institution,
+          bio: dto.bio,
+        },
+      });
+    }
+
+    // 3. Finally, update the User's onboarded status
+    // We do this separately to ensure it happens regardless of the profile type
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: { isOnboarded: true },
+    });
+
+    // 4. Generate new tokens with the updated isOnboarded: true payload
+    const payload = {
+      sub: updatedUser.id,
+      email: updatedUser.email,
+      role: updatedUser.role,
+      isOnboarded: true,
+    };
+
+    const tokens = await this.generateTokens(payload);
+
+    return {
+      user: updatedUser,
+      ...tokens,
     };
   }
 }

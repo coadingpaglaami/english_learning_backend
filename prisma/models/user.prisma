@@ -5,14 +5,15 @@ enum Role {
 }
 
 model User {
-  id        String  @id @default(nanoid())
-  firstName String
-  lastName  String
-  email     String  @unique
-  password  String?
-  role      Role
-  avatarUrl String?
-  isActive  Boolean @default(true)
+  id          String  @id @default(nanoid())
+  firstName   String
+  lastName    String
+  email       String  @unique
+  password    String?
+  role        Role
+  avatarUrl   String?
+  isActive    Boolean @default(true)
+  isOnboarded Boolean @default(false)
 
   teacher TeacherProfile?
   student StudentProfile?
@@ -32,9 +33,9 @@ model TeacherProfile {
 }
 
 model StudentProfile {
-  id        String @id @default(nanoid())
-  userId    String @unique
-  username  String @unique
+  id       String @id @default(nanoid())
+  userId   String @unique
+  username String @unique
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
