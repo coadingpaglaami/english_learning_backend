@@ -18,7 +18,7 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "create:admin": "ts-node -r tsconfig-paths/register prisma/admin-create.ts",
+    "create:admin": "tsx prisma/admin-create.ts",
     "fix:onboarding": "tsx prisma/isOnboarded.ts"
   },
   "dependencies": {
@@ -32,6 +32,8 @@
     "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.7.0",
     "bcrypt": "^6.0.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.4.1",
     "nodemailer": "^8.0.5",

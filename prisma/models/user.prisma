@@ -1,25 +1,18 @@
-enum Role {
-  teacher
-  student
-  admin
-}
-
 model User {
-  id          String  @id @default(nanoid())
+  id          String          @id @default(nanoid())
   firstName   String
   lastName    String
-  email       String  @unique
+  email       String          @unique
   password    String?
   role        Role
   avatarUrl   String?
-  isActive    Boolean @default(true)
-  isOnboarded Boolean @default(false)
-
-  teacher TeacherProfile?
-  student StudentProfile?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  isActive    Boolean         @default(true)
+  isOnboarded Boolean         @default(false)
+  student     StudentProfile?
+  tasks       Task[]
+  teacher     TeacherProfile?
 }
 
 model TeacherProfile {
@@ -28,14 +21,18 @@ model TeacherProfile {
   subject     String
   institution String
   bio         String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model StudentProfile {
   id       String @id @default(nanoid())
   userId   String @unique
   username String @unique
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+enum Role {
+  teacher
+  student
+  admin
 }

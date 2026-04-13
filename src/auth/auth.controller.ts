@@ -6,6 +6,7 @@ import {
   Query,
   Req,
   Res,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
@@ -43,7 +44,6 @@ export class AuthController {
       httpOnly: true,
       secure: true,
       sameSite: 'lax',
-      maxAge: 5 * 60 * 60 * 1000, // 5 hours
       path: '/',
     });
 
@@ -51,11 +51,10 @@ export class AuthController {
       httpOnly: true,
       secure: true,
       sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/',
     });
     console.log('User signed in:', userResponse); // Debugging line to check the user object
-    return { success: true, userResponse };
+    return { success: true, userResponse,accessToken, refreshToken };
   }
 
   @Post('forget-password')
@@ -70,19 +69,24 @@ export class AuthController {
 
   @Post('refresh_token')
   async refreshToken(@Req() req: any, @Res() res: Response) {
-    const refreshToken = req.cookies?.refreshToken;
+    try {
+      const refreshToken = req.cookies?.refreshToken;
+      console.log('Refresh token received:', refreshToken); // Debugging line to check the refresh token
+      if (!refreshToken) throw new UnauthorizedException();
 
-    const tokens = await this.authService.refreshToken({ refreshToken });
+      const tokens = await this.authService.refreshToken({ refreshToken });
 
-    res.cookie('accessToken', tokens.accessToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      domain: process.env.COOKIE_DOMAIN || 'localhost',
-      path: '/',
-    });
+      res.cookie('accessToken', tokens.accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax', // Use 'lax' for same-domain or 'none' for cross-site
+        path: '/',
+      });
 
-    return res.json({ success: true });
+      return res.status(200).json({ success: true });
+    } catch (e) {
+      return res.status(401).json({ message: 'Refresh failed' });
+    }
   }
 
   @Get('google')
@@ -106,7 +110,6 @@ export class AuthController {
       secure: isProd, // Must be false on localhost (HTTP)
       sameSite: isProd ? 'none' : 'lax', // 'lax' is required for localhost
       path: '/',
-      maxAge: 5 * 60 * 60 * 1000,
     });
 
     res.cookie('refreshToken', refreshToken, {
@@ -114,7 +117,7 @@ export class AuthController {
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
       path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+    
     });
 
     // Determine redirect URL
@@ -131,7 +134,6 @@ export class AuthController {
   @Get('me')
   @UseGuards(AuthGuard('jwt'))
   getMe(@Req() req: any) {
-    console.log('User info from JWT:', req.user); // Debugging line to check the user object
     const { sub, email, role, isOnboarded } = req.user;
 
     return { sub, email, role, isOnboarded };
@@ -167,14 +169,12 @@ export class AuthController {
       httpOnly: true,
       secure: true,
       sameSite: 'lax',
-      maxAge: 5 * 60 * 60 * 1000, // 5 hours
     });
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: true,
       sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
     return { success: true, userResponse };

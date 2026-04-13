@@ -186,13 +186,24 @@ export class AuthService {
     };
   }
 
-  async refreshToken(dto: any) {
+async refreshToken(dto: any) {
+  try {
     const payload = await this.jwtService.verifyAsync(dto.refreshToken, {
       secret: process.env.JWT_SECRET,
     });
 
-    return this.generateTokens(payload);
+    // IMPORTANT: Remove iat and exp so the new token gets fresh ones
+    const { iat, exp, ...cleanPayload } = payload;
+
+    return this.generateTokens(cleanPayload);
+  } catch (error) {
+    const err = error as { message?: string };
+    // This will help you see if the refresh token itself is expired
+    console.error("JWT Verification Error:", err.message);
+    throw new UnauthorizedException('Invalid or expired refresh token');
   }
+}
+
 
   async checkUsername(username: string) {
     if (!username) {

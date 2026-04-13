@@ -1,0 +1,70 @@
+model Task {
+  id              String       @id @default(nanoid())
+  title           String
+  type            TaskType
+  status          TaskStatus   @default(DRAFT)
+  isPublic        Boolean      @default(false)
+  createdById     String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  grammarContent  GrammarTask?
+  questions       Question[]
+  readingContent  ReadingTask?
+  createdBy       User         @relation(fields: [createdById], references: [id])
+  vocabularyItems WordItem[]
+}
+
+model ReadingTask {
+  id        String @id @default(nanoid())
+  taskId    String @unique
+  content   String
+  entryType String
+  task      Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model GrammarTask {
+  id        String @id @default(nanoid())
+  taskId    String @unique
+  content   String
+  entryType String
+  task      Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model WordItem {
+  id         String  @id @default(nanoid())
+  taskId     String
+  wordName   String
+  definition String
+  imageUrl   String?
+  task       Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model Question {
+  id        String       @id @default(nanoid())
+  taskId    String
+  type      QuestionType
+  order     Int          @default(0)
+  config    Json
+  createdAt DateTime     @default(now())
+  task      Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+enum TaskType {
+  READING
+  GRAMMAR
+  VOCABULARY
+}
+
+enum TaskStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+enum QuestionType {
+  MCQ
+  GAP_FILL
+  WORD_BOX_MATCH
+}

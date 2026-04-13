@@ -6,11 +6,12 @@ import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './database/prisma.module';
 import { MailModule } from './mail/mail.module';
 import { GuardModule } from './guards/guard.module';
+import { TaskModule } from './task/task.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
     isGlobal: true,
-  }), AuthModule,PrismaModule, MailModule,GuardModule],
+  }), AuthModule,PrismaModule, MailModule,GuardModule, TaskModule],
   controllers: [AppController],
   providers: [AppService],
 })

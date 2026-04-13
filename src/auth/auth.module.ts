@@ -21,7 +21,7 @@ import { GuardModule } from 'src/guards/guard.module';
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
         secret: configService.get<string>('JWT_SECRET'),
-        signOptions: { expiresIn: configService.get<number>('JWT_EXPIRES_IN') || '15m' },
+        signOptions: { expiresIn: configService.get<number>('JWT_EXPIRES_IN') || '1m' },
       }),
       inject: [ConfigService],
     }),
