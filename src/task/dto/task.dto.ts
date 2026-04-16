@@ -1,5 +1,15 @@
-import { IsEnum, IsString, IsOptional, IsArray, ValidateNested, IsBoolean, IsInt } from 'class-validator';
+import {
+  IsEnum,
+  IsString,
+  IsOptional,
+  IsArray,
+  ValidateNested,
+  IsBoolean,
+  IsInt,
+  IsJSON,
+} from 'class-validator';
 import { Type } from 'class-transformer';
+import { EntryType } from 'src/database/prisma-client/enums';
 
 export enum TaskType {
   READING = 'READING',
@@ -14,8 +24,8 @@ class QuestionDto {
   @IsInt()
   order!: number;
 
-  @IsString()
-  config!: string; // JSON string from frontend or an object
+  @IsJSON()
+  config!: JSON; // JSON string from frontend or an object
 }
 
 class WordItemDto {
@@ -45,8 +55,11 @@ export class CreateTaskDto {
 
   // Type specific content
   @IsOptional() @IsString() content?: string; // For Reading/Grammar
-  @IsOptional() @IsString() entryType?: string; // For Reading/Grammar
-  
+  @IsOptional()
+  @IsArray()
+  @IsEnum(EntryType, { each: true })
+  entryType!: EntryType[]; // For Reading/Grammar
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

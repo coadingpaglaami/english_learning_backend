@@ -6,7 +6,12 @@ import { CreateTaskDto, TaskType } from './dto/task.dto';
 export class TaskService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async createTask(dto: CreateTaskDto, userId: string, status: any,role:string) {
+  async createTask(
+    dto: CreateTaskDto,
+    userId: string,
+    status: any,
+    role: string,
+  ) {
     const { title, type, isPublic, content, entryType, words, questions } = dto;
 
     return this.prisma.task.create({
@@ -17,32 +22,48 @@ export class TaskService {
         isPublic: role === 'admin' ? true : false,
         createdById: userId,
         // Polymorphic creation logic
-        readingContent: type === TaskType.READING && content && entryType ? {
-          create: { content, entryType }
-        } : undefined,
-        grammarContent: type === TaskType.GRAMMAR && content && entryType ? {
-          create: { content, entryType }
-        } : undefined,
-        vocabularyItems: type === TaskType.VOCABULARY && words ? {
-          createMany: { data: words }
-        } : undefined,
+        readingContent:
+          type === TaskType.READING && content && entryType?.length
+            ? {
+                create: {
+                  content,
+                  entryType,
+                },
+              }
+            : undefined,
+
+        grammarContent:
+          type === TaskType.GRAMMAR && content && entryType?.length
+            ? {
+                create: {
+                  content,
+                  entryType,
+                },
+              }
+            : undefined,
+        vocabularyItems:
+          type === TaskType.VOCABULARY && words
+            ? {
+                createMany: { data: words },
+              }
+            : undefined,
         // Nested questions creation
         questions: {
           createMany: {
-            data: questions.map(q => ({
+            data: questions.map((q) => ({
               type: q.type as any,
               order: q.order,
-              config: q.config as any
-            }))
-          }
-        }
+              config: q.config as any,
+            })),
+          },
+        },
       },
       include: {
         readingContent: true,
         grammarContent: true,
         vocabularyItems: true,
-        questions: true
-      }
+        questions: true,
+      },
     });
   }
 
@@ -55,7 +76,7 @@ export class TaskService {
     if (role === 'teacher') {
       where.OR = [
         { createdById: userId },
-        { isPublic: true, status: 'APPROVED' }
+        { isPublic: true, status: 'APPROVED' },
       ];
     }
 
@@ -64,7 +85,7 @@ export class TaskService {
       include: {
         createdBy: { select: { email: true } },
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
   }
 
@@ -75,8 +96,8 @@ export class TaskService {
         readingContent: true,
         grammarContent: true,
         vocabularyItems: true,
-        questions: { orderBy: { order: 'asc' } }
-      }
+        questions: { orderBy: { order: 'asc' } },
+      },
     });
 
     if (!task) throw new NotFoundException('Task not found');
@@ -86,7 +107,7 @@ export class TaskService {
   async updateStatus(id: string, status: any) {
     return this.prisma.task.update({
       where: { id },
-      data: { status }
+      data: { status },
     });
   }
 }

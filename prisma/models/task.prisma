@@ -14,20 +14,36 @@ model Task {
   vocabularyItems WordItem[]
 }
 
+enum EntryType {
+  ENTRY1
+  ENTRY2
+  ENTRY3
+  LEVEL1
+  LEVEL2
+  LEVEL3
+  LEVEL4
+  LEVEL5
+  LEVEL6
+  LEVEL7
+  LEVEL8
+  LEVEL9
+  LEVEL10
+}
+
 model ReadingTask {
-  id        String @id @default(nanoid())
-  taskId    String @unique
+  id        String      @id @default(nanoid())
+  taskId    String      @unique
   content   String
-  entryType String
-  task      Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  entryType EntryType[]
+  task      Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
 }
 
 model GrammarTask {
-  id        String @id @default(nanoid())
-  taskId    String @unique
+  id        String      @id @default(nanoid())
+  taskId    String      @unique
   content   String
-  entryType String
-  task      Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  entryType EntryType[]
+  task      Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
 }
 
 model WordItem {
