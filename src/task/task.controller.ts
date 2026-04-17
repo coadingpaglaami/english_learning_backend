@@ -8,26 +8,60 @@ import {
   Param,
   Query,
   Req,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
 import { TaskService } from './task.service';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from 'src/decorator/role.decorator';
-import { CreateTaskDto } from './dto/task.dto';
+import { CreateTaskDto, QuestionDto } from './dto/task.dto';
 import { RolesGuard } from 'src/guards/role.guard';
+import {  FilesInterceptor } from '@nestjs/platform-express';
 @Controller('tasks')
-@UseGuards(AuthGuard('jwt'),RolesGuard)
+@UseGuards(AuthGuard('jwt'), RolesGuard)
 export class TaskController {
   constructor(private readonly taskService: TaskService) {}
 
-  @Post()
+@Post()
+@Roles(['admin', 'teacher'])
+@UseInterceptors(FilesInterceptor('images'))
+async create(
+  @Body() createTaskDto: CreateTaskDto,
+  @Req() req: any,
+  @UploadedFiles() images?: Express.Multer.File[],
+) {
+  const userId = req.user.sub;
+
+  const status =
+    req.user.role === 'admin' ? 'APPROVED' : 'PENDING_APPROVAL';
+
+  console.log("Uploaded images:", images);
+
+  return this.taskService.createTask(
+    createTaskDto,
+    userId,
+    status,
+    req.user.role,
+    images,
+  );
+}
+
+  @Post(':taskId/questions')
   @Roles(['admin', 'teacher'])
-  async create(@Body() createTaskDto: CreateTaskDto, @Req() req: any) {
-    const userId = req.user.sub;
-    console.log('Creating task with data:', createTaskDto, 'for user:', userId, 'with role:', req.user.role,req.user.email); // Debugging line
-    // If teacher creates, status is PENDING_APPROVAL. If admin, it can be APPROVED.
-    const status = req.user.role === 'admin' ? 'APPROVED' : 'PENDING_APPROVAL';
-    return this.taskService.createTask(createTaskDto, userId, status,req.user.role);
+  async addQuestions(
+    @Param('taskId') taskId: string,
+    @Body() questions: QuestionDto[],
+  ) {
+    return this.taskService.addQuestionsToTask(taskId, questions);
   }
+
+  @Get(':taskId/words')
+  @Roles(['admin', 'teacher'])
+  async getWords(@Param('taskId') taskId: string, @Query('search') search?: string) {
+    return this.taskService.getTasksWords(taskId,search);
+  }
+
+
 
   @Get()
   @Roles(['admin', 'teacher'])

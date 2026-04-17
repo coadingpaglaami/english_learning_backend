@@ -7,6 +7,7 @@ import {
   IsBoolean,
   IsInt,
   IsJSON,
+  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { EntryType } from 'src/database/prisma-client/enums';
@@ -17,7 +18,7 @@ export enum TaskType {
   VOCABULARY = 'VOCABULARY',
 }
 
-class QuestionDto {
+export class QuestionDto {
   @IsEnum(['MCQ', 'GAP_FILL', 'WORD_BOX_MATCH'])
   type!: string;
 
@@ -66,6 +67,8 @@ export class CreateTaskDto {
   @Type(() => WordItemDto)
   words?: WordItemDto[]; // For Vocabulary
 
+
+  @ValidateIf((o)=> o.type !== TaskType.VOCABULARY)
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => QuestionDto)

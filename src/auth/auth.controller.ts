@@ -53,7 +53,6 @@ export class AuthController {
       sameSite: 'lax',
       path: '/',
     });
-    console.log('User signed in:', userResponse); // Debugging line to check the user object
     return { success: true, userResponse,accessToken, refreshToken };
   }
 
@@ -71,7 +70,6 @@ export class AuthController {
   async refreshToken(@Req() req: any, @Res() res: Response) {
     try {
       const refreshToken = req.cookies?.refreshToken;
-      console.log('Refresh token received:', refreshToken); // Debugging line to check the refresh token
       if (!refreshToken) throw new UnauthorizedException();
 
       const tokens = await this.authService.refreshToken({ refreshToken });
@@ -160,7 +158,6 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const userId = req.user.sub;
-    console.log(userId);
     const { accessToken, refreshToken, user } =
       await this.authService.completeProfile(userId, dto);
     const { password, ...userResponse } = user;
