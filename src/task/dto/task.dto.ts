@@ -19,7 +19,7 @@ export enum TaskType {
 }
 
 export class QuestionDto {
-  @IsEnum(['MCQ', 'GAP_FILL', 'WORD_BOX_MATCH'])
+  @IsEnum(['MCQ', 'GAP_FILL', 'WORD_BOX_MATCH', 'MATCHING', 'QUESTION_ANSWER'])
   type!: string;
 
   @IsInt()
@@ -67,8 +67,14 @@ export class CreateTaskDto {
   @Type(() => WordItemDto)
   words?: WordItemDto[]; // For Vocabulary
 
+  @ValidateIf((o) => o.type !== TaskType.VOCABULARY)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => QuestionDto)
+  questions!: QuestionDto[];
+}
 
-  @ValidateIf((o)=> o.type !== TaskType.VOCABULARY)
+export class AddQuestionsDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => QuestionDto)

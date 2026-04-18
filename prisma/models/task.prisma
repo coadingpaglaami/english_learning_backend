@@ -34,6 +34,7 @@ model ReadingTask {
   id        String      @id @default(nanoid())
   taskId    String      @unique
   content   String
+  imageUrl String?
   entryType EntryType[]
   task      Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
 }
@@ -83,4 +84,6 @@ enum QuestionType {
   MCQ
   GAP_FILL
   WORD_BOX_MATCH
+  MATCHING
+  QUESTION_ANSWER
 }

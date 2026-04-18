@@ -10,11 +10,12 @@ import {
   Req,
   UseInterceptors,
   UploadedFiles,
+  UploadedFile,
 } from '@nestjs/common';
 import { TaskService } from './task.service';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from 'src/decorator/role.decorator';
-import { CreateTaskDto, QuestionDto } from './dto/task.dto';
+import { AddQuestionsDto, CreateTaskDto, QuestionDto } from './dto/task.dto';
 import { RolesGuard } from 'src/guards/role.guard';
 import {  FilesInterceptor } from '@nestjs/platform-express';
 @Controller('tasks')
@@ -24,11 +25,12 @@ export class TaskController {
 
 @Post()
 @Roles(['admin', 'teacher'])
-@UseInterceptors(FilesInterceptor('images'))
+@UseInterceptors(FilesInterceptor('images'),FilesInterceptor('passageImage'))
 async create(
   @Body() createTaskDto: CreateTaskDto,
   @Req() req: any,
   @UploadedFiles() images?: Express.Multer.File[],
+  @UploadedFile() passageImage?: Express.Multer.File,
 ) {
   const userId = req.user.sub;
 
@@ -43,6 +45,7 @@ async create(
     status,
     req.user.role,
     images,
+    passageImage
   );
 }
 
@@ -50,7 +53,7 @@ async create(
   @Roles(['admin', 'teacher'])
   async addQuestions(
     @Param('taskId') taskId: string,
-    @Body() questions: QuestionDto[],
+    @Body() questions: AddQuestionsDto,
   ) {
     return this.taskService.addQuestionsToTask(taskId, questions);
   }

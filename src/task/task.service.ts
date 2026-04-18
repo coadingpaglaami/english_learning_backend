@@ -1,7 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.service';
-import { CreateTaskDto, QuestionDto, TaskType } from './dto/task.dto';
+import {
+  AddQuestionsDto,
+  CreateTaskDto,
+  QuestionDto,
+  TaskType,
+} from './dto/task.dto';
 import { UploadService } from 'src/upload/upload.service';
+import { QuestionType } from 'src/database/prisma-client/enums';
 
 @Injectable()
 export class TaskService {
@@ -10,94 +20,13 @@ export class TaskService {
     private readonly uploadService: UploadService,
   ) {}
 
-  // async createTask(
-  //   dto: CreateTaskDto,
-  //   userId: string,
-  //   status: any,
-  //   role: string,
-  //   files?: Express.Multer.File[],
-  // ) {
-  //   const { title, type, isPublic, content, entryType, words, questions } = dto;
-  //   let vocabularyItemsData:
-  //     | { wordName: string; definition: string; imageUrl?: string }[]
-  //     | undefined = undefined;
-
-  //   if (type === TaskType.VOCABULARY && words) {
-  //     vocabularyItemsData = await Promise.all(
-  //       words.map(async (word, index) => {
-  //         let imageUrl = word.imageUrl;
-
-  //         if (files && files[index]) {
-  //           imageUrl = await this.uploadService.uploadSingleImage(
-  //             files[index],
-  //             'vocabulary_images',
-  //           );
-  //         }
-
-  //         return { ...word, imageUrl };
-  //       }),
-  //     );
-  //   }
-
-  //   return this.prisma.task.create({
-  //     data: {
-  //       title,
-  //       type,
-  //       status,
-  //       isPublic: role === 'admin' ? true : false,
-  //       createdById: userId,
-  //       // Polymorphic creation logic
-  //       readingContent:
-  //         type === TaskType.READING && content && entryType?.length
-  //           ? {
-  //               create: {
-  //                 content,
-  //                 entryType,
-  //               },
-  //             }
-  //           : undefined,
-
-  //       grammarContent:
-  //         type === TaskType.GRAMMAR && content && entryType?.length
-  //           ? {
-  //               create: {
-  //                 content,
-  //                 entryType,
-  //               },
-  //             }
-  //           : undefined,
-  //       vocabularyItems:
-  //         type === TaskType.VOCABULARY && words
-  //           ? {
-  //               createMany: { data: vocabularyItemsData! },
-  //             }
-  //           : undefined,
-  //       // Nested questions creation
-  //       questions: {
-  //         createMany: {
-  //           data: questions.map((q) => ({
-  //             type: q.type as any,
-  //             order: q.order,
-  //             config: q.config as any,
-  //           })),
-  //         },
-  //       },
-  //     },
-  //     include: {
-  //       readingContent: true,
-  //       grammarContent: true,
-  //       vocabularyItems: true,
-  //       questions: true,
-  //     },
-  //   });
-  // }
-
   async createTask(
     dto: CreateTaskDto,
     userId: string,
     status: any,
     role: string,
     files?: Express.Multer.File[],
+    passageImage?: Express.Multer.File,
   ) {
     const { title, type, content, entryType, words, questions } = dto;
 
@@ -105,7 +34,7 @@ export class TaskService {
       | { wordName: string; definition: string; imageUrl?: string }[]
       | undefined;
 
-      console.log('Images', files)
+    console.log('Images', files);
 
     /**
      * Handle Vocabulary Words
@@ -132,6 +61,11 @@ export class TaskService {
         });
       }
     }
+    let passageImageUrl: string | undefined;
+    if (type === TaskType.READING && passageImage) {
+      passageImageUrl =
+        await this.uploadService.uploadSingleImage(passageImage);
+    }
 
     /**
      * Create Task
@@ -153,6 +87,7 @@ export class TaskService {
                 create: {
                   content,
                   entryType,
+                  imageUrl: passageImageUrl,
                 },
               }
             : undefined,
@@ -189,7 +124,7 @@ export class TaskService {
           ? {
               createMany: {
                 data: questions.map((q) => ({
-                  type: q.type as any,
+                  type: q.type as QuestionType,
                   order: q.order,
                   config: q.config as any,
                 })),
@@ -207,17 +142,22 @@ export class TaskService {
     });
   }
 
-  async addQuestionsToTask(taskId: string, questions: QuestionDto[]) {
-    const task = await this.prisma.task.findUnique({ where: { id: taskId } });
+  async addQuestionsToTask(taskId: string, questions: AddQuestionsDto) {
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      include: { questions: true },
+    });
     if (!task) throw new NotFoundException('Task not found');
-
+    if (task.questions.length > 0) {
+      throw new ConflictException('Questions already added to this task');
+    }
     return this.prisma.task.update({
       where: { id: taskId },
       data: {
         questions: {
           createMany: {
-            data: questions.map((q) => ({
-              type: q.type as any,
+            data: questions.questions.map((q) => ({
+              type: q.type as QuestionType,
               order: q.order,
               config: q.config as any,
             })),
