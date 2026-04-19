@@ -10,44 +10,54 @@ import {
   Req,
   UseInterceptors,
   UploadedFiles,
-  UploadedFile,
 } from '@nestjs/common';
 import { TaskService } from './task.service';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from 'src/decorator/role.decorator';
-import { AddQuestionsDto, CreateTaskDto, QuestionDto } from './dto/task.dto';
+import {
+  AddQuestionsDto,
+  CreateTaskDto,
+  TaskQueryDto,
+} from './dto/task.dto';
 import { RolesGuard } from 'src/guards/role.guard';
-import {  FilesInterceptor } from '@nestjs/platform-express';
+import {
+  FileFieldsInterceptor,
+} from '@nestjs/platform-express';
+
 @Controller('tasks')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 export class TaskController {
   constructor(private readonly taskService: TaskService) {}
 
-@Post()
-@Roles(['admin', 'teacher'])
-@UseInterceptors(FilesInterceptor('images'),FilesInterceptor('passageImage'))
-async create(
-  @Body() createTaskDto: CreateTaskDto,
-  @Req() req: any,
-  @UploadedFiles() images?: Express.Multer.File[],
-  @UploadedFile() passageImage?: Express.Multer.File,
-) {
-  const userId = req.user.sub;
+  @Post()
+  @Roles(['admin', 'teacher'])
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'images', maxCount: 10 },
+      { name: 'passageImage', maxCount: 1 },
+    ]),
+  )
+  async create(
+    @Body() createTaskDto: CreateTaskDto,
+    @Req() req: any,
+    @UploadedFiles()
+    files?: {
+      images?: Express.Multer.File[];
+      passageImage?: Express.Multer.File[];
+    },
+  ) {
+    const userId = req.user.sub;
+    const status = req.user.role === 'admin' ? 'APPROVED' : 'PENDING_APPROVAL';
 
-  const status =
-    req.user.role === 'admin' ? 'APPROVED' : 'PENDING_APPROVAL';
-
-  console.log("Uploaded images:", images);
-
-  return this.taskService.createTask(
-    createTaskDto,
-    userId,
-    status,
-    req.user.role,
-    images,
-    passageImage
-  );
-}
+    return this.taskService.createTask(
+      createTaskDto,
+      userId,
+      status,
+      req.user.role,
+      files?.images,
+      files?.passageImage?.[0], // single file
+    );
+  }
 
   @Post(':taskId/questions')
   @Roles(['admin', 'teacher'])
@@ -60,17 +70,17 @@ async create(
 
   @Get(':taskId/words')
   @Roles(['admin', 'teacher'])
-  async getWords(@Param('taskId') taskId: string, @Query('search') search?: string) {
-    return this.taskService.getTasksWords(taskId,search);
+  async getWords(
+    @Param('taskId') taskId: string,
+    @Query('search') search?: string,
+  ) {
+    return this.taskService.getTasksWords(taskId, search);
   }
-
-
 
   @Get()
   @Roles(['admin', 'teacher'])
-  async findAll(@Query('status') status: any, @Req() req) {
-    // Admins see everything, teachers see their own or public ones
-    return this.taskService.findAll(req.user.role, req.user.sub, status);
+  async findAll(@Query() query: TaskQueryDto, @Req() req) {
+    return this.taskService.findAll(req.user.role, req.user.sub, query);
   }
 
   @Patch(':id/approve')

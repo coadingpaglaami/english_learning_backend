@@ -6,11 +6,11 @@ import {
   ValidateNested,
   IsBoolean,
   IsInt,
-  IsJSON,
   ValidateIf,
 } from 'class-validator';
-import { Type } from 'class-transformer';
-import { EntryType } from 'src/database/prisma-client/enums';
+import { Type, Transform, plainToInstance } from 'class-transformer';
+import { EntryType, TaskStatus } from 'src/database/prisma-client/enums';
+import { PaginationQueryDto } from 'common/dto/pagination.dto';
 
 export enum TaskType {
   READING = 'READING',
@@ -23,17 +23,20 @@ export class QuestionDto {
   type!: string;
 
   @IsInt()
+  @Transform(({ value }) => parseInt(value, 10))
   order!: number;
 
-  @IsJSON()
-  config!: JSON; // JSON string from frontend or an object
+  @IsString()
+  config!: string;
 }
 
 class WordItemDto {
   @IsString()
   wordName!: string;
+
   @IsString()
   definition!: string;
+
   @IsOptional()
   @IsString()
   imageUrl?: string;
@@ -52,22 +55,50 @@ export class CreateTaskDto {
 
   @IsOptional()
   @IsString()
-  organizationId!: string;
+  organizationId?: string;
 
-  // Type specific content
-  @IsOptional() @IsString() content?: string; // For Reading/Grammar
   @IsOptional()
+  @IsString()
+  content?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      try { return JSON.parse(value); } catch { return value; }
+    }
+    return value;
+  })
   @IsArray()
   @IsEnum(EntryType, { each: true })
-  entryType!: EntryType[]; // For Reading/Grammar
+  entryType?: EntryType[];
 
   @IsOptional()
+  @Transform(({ value }) => {
+    let parsed = value;
+    if (typeof value === 'string') {
+      try { parsed = JSON.parse(value); } catch { return value; }
+    }
+    if (Array.isArray(parsed)) {
+      return plainToInstance(WordItemDto, parsed);
+    }
+    return parsed;
+  })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => WordItemDto)
-  words?: WordItemDto[]; // For Vocabulary
+  words?: WordItemDto[];
 
   @ValidateIf((o) => o.type !== TaskType.VOCABULARY)
+  @Transform(({ value }) => {
+    let parsed = value;
+    if (typeof value === 'string') {
+      try { parsed = JSON.parse(value); } catch { return value; }
+    }
+    if (Array.isArray(parsed)) {
+      return plainToInstance(QuestionDto, parsed);
+    }
+    return parsed;
+  })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => QuestionDto)
@@ -79,4 +110,10 @@ export class AddQuestionsDto {
   @ValidateNested({ each: true })
   @Type(() => QuestionDto)
   questions!: QuestionDto[];
+}
+
+export class TaskQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsEnum(TaskStatus)
+  status?: TaskStatus;
 }

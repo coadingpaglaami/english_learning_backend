@@ -8,6 +8,7 @@ import {
   AddQuestionsDto,
   CreateTaskDto,
   QuestionDto,
+  TaskQueryDto,
   TaskType,
 } from './dto/task.dto';
 import { UploadService } from 'src/upload/upload.service';
@@ -159,7 +160,8 @@ export class TaskService {
             data: questions.questions.map((q) => ({
               type: q.type as QuestionType,
               order: q.order,
-              config: q.config as any,
+              config:
+                typeof q.config === 'string' ? JSON.parse(q.config) : q.config,
             })),
           },
         },
@@ -187,12 +189,13 @@ export class TaskService {
     return task.vocabularyItems;
   }
 
-  async findAll(role: string, userId: string, status?: any) {
+  async findAll(role: string, userId: string, query: TaskQueryDto) {
+    const { page = 1, limit = 10, status } = query;
+
     const where: any = {};
 
     if (status) where.status = status;
 
-    // Teachers only see their own tasks or approved public tasks
     if (role === 'teacher') {
       where.OR = [
         { createdById: userId },
@@ -200,13 +203,29 @@ export class TaskService {
       ];
     }
 
-    return this.prisma.task.findMany({
-      where,
-      include: {
-        createdBy: { select: { email: true } },
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.task.findMany({
+        where,
+        include: {
+          createdBy: { select: { email: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+
+      this.prisma.task.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
       },
-      orderBy: { createdAt: 'desc' },
-    });
+    };
   }
 
   async findOne(id: string) {
