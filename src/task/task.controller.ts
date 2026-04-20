@@ -14,15 +14,13 @@ import {
 import { TaskService } from './task.service';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from 'src/decorator/role.decorator';
-import {
-  AddQuestionsDto,
-  CreateTaskDto,
-  TaskQueryDto,
-} from './dto/task.dto';
+import { AddQuestionsDto, CreateTaskDto, TaskQueryDto } from './dto/task.dto';
 import { RolesGuard } from 'src/guards/role.guard';
 import {
+  AnyFilesInterceptor,
   FileFieldsInterceptor,
 } from '@nestjs/platform-express';
+import { UpdateTaskDto } from './dto/update-task.dto';
 
 @Controller('tasks')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -56,6 +54,24 @@ export class TaskController {
       req.user.role,
       files?.images,
       files?.passageImage?.[0], // single file
+    );
+  }
+
+  @Patch(':id')
+  @Roles(['admin', 'teacher'])
+  @UseInterceptors(AnyFilesInterceptor())
+  async update(
+    @Param('id') taskId: string,
+    @Body() updateTaskDto: UpdateTaskDto,
+    @Req() req: any,
+    @UploadedFiles() files?: Express.Multer.File[],
+  ) {
+    return this.taskService.updateTask(
+      taskId,
+      updateTaskDto,
+      req.user.sub,
+      req.user.role,
+      files || [],
     );
   }
 
