@@ -8,11 +8,12 @@ import { MailModule } from './mail/mail.module';
 import { GuardModule } from './guards/guard.module';
 import { TaskModule } from './task/task.module';
 import { UploadModule } from './upload/upload.module';
+import { ClassModule } from './class/class.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
     isGlobal: true,
-  }), AuthModule,PrismaModule, MailModule,GuardModule, TaskModule, UploadModule],
+  }), AuthModule,PrismaModule, MailModule,GuardModule, TaskModule, UploadModule, ClassModule],
   controllers: [AppController],
   providers: [AppService],
 })

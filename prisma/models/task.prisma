@@ -12,6 +12,7 @@ model Task {
   readingContent  ReadingTask?
   createdBy       User         @relation(fields: [createdById], references: [id])
   vocabularyItems WordItem[]
+  classTasks      ClassTask[]
 }
 
 enum EntryType {
@@ -34,7 +35,7 @@ model ReadingTask {
   id        String      @id @default(nanoid())
   taskId    String      @unique
   content   String
-  imageUrl String?
+  imageUrl  String?
   entryType EntryType[]
   task      Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
 }
