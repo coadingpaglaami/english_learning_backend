@@ -186,24 +186,23 @@ export class AuthService {
     };
   }
 
-async refreshToken(dto: any) {
-  try {
-    const payload = await this.jwtService.verifyAsync(dto.refreshToken, {
-      secret: process.env.JWT_SECRET,
-    });
+  async refreshToken(dto: any) {
+    try {
+      const payload = await this.jwtService.verifyAsync(dto.refreshToken, {
+        secret: process.env.JWT_SECRET,
+      });
 
-    // IMPORTANT: Remove iat and exp so the new token gets fresh ones
-    const { iat, exp, ...cleanPayload } = payload;
+      // IMPORTANT: Remove iat and exp so the new token gets fresh ones
+      const { iat, exp, ...cleanPayload } = payload;
 
-    return this.generateTokens(cleanPayload);
-  } catch (error) {
-    const err = error as { message?: string };
-    // This will help you see if the refresh token itself is expired
-    console.error("JWT Verification Error:", err.message);
-    throw new UnauthorizedException('Invalid or expired refresh token');
+      return this.generateTokens(cleanPayload);
+    } catch (error) {
+      const err = error as { message?: string };
+      // This will help you see if the refresh token itself is expired
+      console.error('JWT Verification Error:', err.message);
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
   }
-}
-
 
   async checkUsername(username: string) {
     if (!username) {
@@ -282,4 +281,36 @@ async refreshToken(dto: any) {
       ...tokens,
     };
   }
+
+async findStudent(identifier: string) {
+  const value = identifier.trim();
+
+  console.log("Searching for student with identifier:", value);
+
+  const student = await this.prisma.studentProfile.findFirst({
+    where: {
+      username: {
+        contains: value,
+        mode: "insensitive",
+      },
+    },
+    select: {
+      username: true,
+      user: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          role: true,
+          avatarUrl: true,
+        },
+      },
+    },
+  });
+
+  console.log("Student result:", student);
+
+  return student;
+}
 }

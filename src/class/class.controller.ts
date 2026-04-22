@@ -21,6 +21,7 @@ import {
   CreateClassDto,
   RemoveTasksDto,
   ScheduleTaskDto,
+  StudentQuery,
   UpdateClassDto,
 } from './dto/create.dto';
 
@@ -67,6 +68,11 @@ export class ClassController {
     return this.classService.addStudents(id, dto.studentIds);
   }
 
+  @Get(':id/students')
+  getStudents(@Param('id') id: string, @Query() query: StudentQuery) {
+    return this.classService.getStudents(id, query);
+  }
+
   @Delete(':id/students')
   removeStudents(@Param('id') id: string, @Body() dto: AddStudentsDto) {
     return this.classService.removeStudents(id, dto.studentIds);
@@ -104,6 +110,7 @@ export class ClassController {
   getScheduledTasks(@Param('id') id: string, @Req() req) {
     return this.classService.getScheduledTasks(id, req.user.role);
   }
+
 
   @Delete(':id/schedule/:classTaskId')
   @Roles(['teacher'])

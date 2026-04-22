@@ -9,11 +9,12 @@ import { GuardModule } from './guards/guard.module';
 import { TaskModule } from './task/task.module';
 import { UploadModule } from './upload/upload.module';
 import { ClassModule } from './class/class.module';
+import { AttemptModule } from './attempt/attempt.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
     isGlobal: true,
-  }), AuthModule,PrismaModule, MailModule,GuardModule, TaskModule, UploadModule, ClassModule],
+  }), AuthModule,PrismaModule, MailModule,GuardModule, TaskModule, UploadModule, ClassModule, AttemptModule],
   controllers: [AppController],
   providers: [AppService],
 })

@@ -7,6 +7,7 @@ import { PrismaService } from 'src/database/prisma.service';
 import {
   CreateClassDto,
   ScheduleTaskDto,
+  StudentQuery,
   UpdateClassDto,
 } from './dto/create.dto';
 import { PaginationQueryDto } from 'common/dto/pagination.dto';
@@ -41,6 +42,7 @@ export class ClassService {
       title: ct.task.title,
       type: ct.task.type,
       status: ct.task.status,
+      questionCount: ct.task._count?.questions ?? 0,
     },
     scheduled: ct.scheduledTask
       ? {
@@ -49,6 +51,7 @@ export class ClassService {
           isActive: ct.scheduledTask.isActive,
         }
       : null,
+      class: ct.class ? { id: ct.class.id, name: ct.class.name } : null,
   });
 
   // ─── Class CRUD ───────────────────────────────────────────────
@@ -89,7 +92,7 @@ export class ClassService {
       classTasks: {
         include: {
           task: { select: { id: true, title: true, type: true, status: true } },
-        }
+        },
       },
     };
 
@@ -144,7 +147,31 @@ export class ClassService {
   }
 
   async update(id: string, dto: UpdateClassDto) {
-    return this.prisma.class.update({ where: { id }, data: dto });
+    const { taskIds, ...rest } = dto;
+
+    return this.prisma.class.update({
+      where: { id },
+      data: {
+        ...rest,
+        ...(taskIds && {
+          classTasks: {
+            deleteMany: {},
+            create: taskIds.map((taskId) => ({
+              task: {
+                connect: { id: taskId },
+              },
+            })),
+          },
+        }),
+      },
+      include: {
+        classTasks: {
+          include: {
+            task: { select: { id: true } },
+          },
+        },
+      },
+    });
   }
 
   async remove(id: string) {
@@ -160,6 +187,72 @@ export class ClassService {
         students: { connect: studentIds.map((id) => ({ id })) },
       },
     });
+  }
+
+  async getStudents(classId: string, query: StudentQuery) {
+    const { page = 1, limit = 10, search } = query;
+
+    const skip = (page - 1) * limit;
+
+    const where: any = {
+      role: 'student',
+      enrolledClasses: {
+        some: { id: classId },
+      },
+
+      ...(search && {
+        OR: [
+          { email: { contains: search, mode: 'insensitive' } },
+          { firstName: { contains: search, mode: 'insensitive' } },
+          { lastName: { contains: search, mode: 'insensitive' } },
+
+          {
+            student: {
+              username: {
+                contains: search,
+                mode: 'insensitive',
+              },
+            },
+          },
+        ],
+      }),
+    };
+
+    const [students, total] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: {
+          createdAt: 'desc',
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          avatarUrl: true,
+          createdAt: true,
+          student: {
+            select: {
+              username: true,
+            },
+          },
+        },
+      }),
+
+      this.prisma.user.count({ where }),
+    ]);
+
+    return {
+      data: students,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async removeStudents(classId: string, studentIds: string[]) {
@@ -252,8 +345,13 @@ export class ClassService {
         ...(role === 'student' ? { scheduledTask: { isActive: true } } : {}),
       },
       include: {
-        task: { select: { id: true, title: true, type: true, status: true } },
+        task: { select: { id: true, title: true, type: true, status: true, _count: { select: { questions: true } } }, },
         scheduledTask: true,
+        class:{
+          select:{
+            id:true, name:true
+          }
+        },
       },
     });
 

@@ -22,6 +22,16 @@ import type { Response } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { GoogleRoleGuard } from 'src/guards/google-role.guard';
 
+@Controller('finder')
+export class FinderController {
+  constructor(private readonly authService: AuthService) {}
+  @Get()
+  async find(@Query('search') search: string) {
+    console.log('Searching for student with identifier:', search);
+    return await this.authService.findStudent(search);
+  }
+}
+
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -53,7 +63,7 @@ export class AuthController {
       sameSite: 'lax',
       path: '/',
     });
-    return { success: true, userResponse,accessToken, refreshToken };
+    return { success: true, userResponse, accessToken, refreshToken };
   }
 
   @Post('forget-password')
@@ -115,7 +125,6 @@ export class AuthController {
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
       path: '/',
-    
     });
 
     // Determine redirect URL

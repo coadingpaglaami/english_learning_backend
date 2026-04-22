@@ -37,4 +37,5 @@ model ClassScheduledTask {
 
   classTaskId String    @unique
   classTask   ClassTask @relation(fields: [classTaskId], references: [id], onDelete: Cascade)
+  attempts    Attempt[]
 }

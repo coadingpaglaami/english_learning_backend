@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { AuthController } from './auth.controller';
+import { AuthController, FinderController } from './auth.controller';
 import { PrismaModule } from 'src/database/prisma.module';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
@@ -29,7 +29,7 @@ import { GuardModule } from 'src/guards/guard.module';
     MailModule,
     GuardModule,
   ],
-  controllers: [AuthController],
+  controllers: [AuthController,FinderController],
   providers: [AuthService, GoogleStrategy, JwtStrategy],
 })
 export class AuthModule {}

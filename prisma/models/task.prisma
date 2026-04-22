@@ -13,6 +13,7 @@ model Task {
   createdBy       User         @relation(fields: [createdById], references: [id])
   vocabularyItems WordItem[]
   classTasks      ClassTask[]
+  attempts        Attempt[]
 }
 
 enum EntryType {
@@ -58,13 +59,14 @@ model WordItem {
 }
 
 model Question {
-  id        String       @id @default(nanoid())
-  taskId    String
-  type      QuestionType
-  order     Int          @default(0)
-  config    Json
-  createdAt DateTime     @default(now())
-  task      Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  id             String          @id @default(nanoid())
+  taskId         String
+  type           QuestionType
+  order          Int             @default(0)
+  config         Json
+  createdAt      DateTime        @default(now())
+  task           Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  studentAnswers StudentAnswer[]
 }
 
 enum TaskType {

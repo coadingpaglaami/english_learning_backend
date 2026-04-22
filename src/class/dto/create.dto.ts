@@ -6,6 +6,7 @@ import {
   IsBoolean,
   IsNumber,
 } from 'class-validator';
+import { PaginationQueryDto } from 'common/dto/pagination.dto';
 
 export class CreateClassDto {
   @IsString()
@@ -37,6 +38,8 @@ export class UpdateClassDto {
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsString() color?: string;
   @IsOptional() @IsNumber() maxStudents?: number;
+  @IsOptional() @IsArray() @IsString({ each: true }) taskIds?: string[];
+
 }
 
 export class AddStudentsDto {
@@ -70,3 +73,10 @@ export class ScheduleTaskDto {
   @IsBoolean()
   isActive?: boolean;
 }
+
+export class StudentQuery extends PaginationQueryDto {
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
+  
