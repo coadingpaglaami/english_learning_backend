@@ -46,6 +46,7 @@ export class ClassService {
     },
     scheduled: ct.scheduledTask
       ? {
+          id: ct.scheduledTask.id,
           scheduledAt: ct.scheduledTask.scheduledAt,
           dueAt: ct.scheduledTask.dueAt,
           isActive: ct.scheduledTask.isActive,
@@ -346,7 +347,11 @@ export class ClassService {
       },
       include: {
         task: { select: { id: true, title: true, type: true, status: true, _count: { select: { questions: true } } }, },
-        scheduledTask: true,
+        scheduledTask: {
+          select:{
+            id:true, scheduledAt:true, dueAt:true, isActive:true
+          }
+        },
         class:{
           select:{
             id:true, name:true
