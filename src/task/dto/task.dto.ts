@@ -18,6 +18,13 @@ export enum TaskType {
   VOCABULARY = 'VOCABULARY',
 }
 
+export enum AwardingBody {
+  ESB = 'ESB',
+  ASCENTIS = 'ASCENTIS',
+  GATEWAY = 'GATEWAY',
+  TRINITY = 'TRINITY',
+}
+
 export class QuestionDto {
   @IsEnum(['MCQ', 'GAP_FILL', 'WORD_BOX_MATCH', 'MATCHING', 'QUESTION_ANSWER'])
   type!: string;
@@ -28,6 +35,10 @@ export class QuestionDto {
 
   @IsString()
   config!: string;
+
+  @IsOptional()
+  @IsString()
+  criterionId?: string; // Links to the Criterion table record
 }
 
 class WordItemDto {
@@ -58,13 +69,26 @@ export class CreateTaskDto {
   organizationId?: string;
 
   @IsOptional()
+  @IsEnum(AwardingBody)
+  awardingBody?: AwardingBody;
+
+  @IsOptional()
+  @IsInt()
+  @Transform(({ value }) => (value ? parseInt(value, 10) : undefined))
+  passMark?: number;
+
+  @IsOptional()
   @IsString()
   content?: string;
 
   @IsOptional()
   @Transform(({ value }) => {
     if (typeof value === 'string') {
-      try { return JSON.parse(value); } catch { return value; }
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
     }
     return value;
   })
@@ -76,7 +100,11 @@ export class CreateTaskDto {
   @Transform(({ value }) => {
     let parsed = value;
     if (typeof value === 'string') {
-      try { parsed = JSON.parse(value); } catch { return value; }
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        return value;
+      }
     }
     if (Array.isArray(parsed)) {
       return plainToInstance(WordItemDto, parsed);
@@ -92,7 +120,11 @@ export class CreateTaskDto {
   @Transform(({ value }) => {
     let parsed = value;
     if (typeof value === 'string') {
-      try { parsed = JSON.parse(value); } catch { return value; }
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        return value;
+      }
     }
     if (Array.isArray(parsed)) {
       return plainToInstance(QuestionDto, parsed);

@@ -33,12 +33,15 @@ enum EntryType {
 }
 
 model ReadingTask {
-  id        String      @id @default(nanoid())
-  taskId    String      @unique
-  content   String
-  imageUrl  String?
-  entryType EntryType[]
-  task      Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  id           String        @id @default(nanoid())
+  taskId       String        @unique
+  content      String
+  imageUrl     String?
+  entryType    EntryType[]
+  awardingBody AwardingBody?
+  passLogic    PassLogicType @default(SCORE_ONLY)
+  passMark     Int? // The minimum score required (if applicable)
+  task         Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
 }
 
 model GrammarTask {
@@ -67,6 +70,8 @@ model Question {
   createdAt      DateTime        @default(now())
   task           Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
   studentAnswers StudentAnswer[]
+  criterion      Criterion?      @relation(fields: [criterionId], references: [id])
+  criterionId    String?
 }
 
 enum TaskType {

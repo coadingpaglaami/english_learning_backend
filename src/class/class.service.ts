@@ -52,7 +52,7 @@ export class ClassService {
           isActive: ct.scheduledTask.isActive,
         }
       : null,
-      class: ct.class ? { id: ct.class.id, name: ct.class.name } : null,
+    class: ct.class ? { id: ct.class.id, name: ct.class.name } : null,
   });
 
   // ─── Class CRUD ───────────────────────────────────────────────
@@ -150,28 +150,53 @@ export class ClassService {
   async update(id: string, dto: UpdateClassDto) {
     const { taskIds, ...rest } = dto;
 
-    return this.prisma.class.update({
-      where: { id },
-      data: {
-        ...rest,
-        ...(taskIds && {
-          classTasks: {
-            deleteMany: {},
-            create: taskIds.map((taskId) => ({
-              task: {
-                connect: { id: taskId },
-              },
+    return this.prisma.$transaction(async (tx) => {
+      if (taskIds) {
+        const existing = await tx.classTask.findMany({
+          where: { classId: id },
+          select: { id: true, taskId: true },
+        });
+
+        const existingTaskIds = existing.map((t) => t.taskId);
+
+        const toAdd = taskIds.filter((t) => !existingTaskIds.includes(t));
+        const toRemove = existing
+          .filter((t) => !taskIds.includes(t.taskId))
+          .map((t) => t.id);
+
+        await tx.class.update({
+          where: { id },
+          data: rest,
+        });
+
+        if (toAdd.length) {
+          await tx.classTask.createMany({
+            data: toAdd.map((taskId) => ({
+              classId: id,
+              taskId,
             })),
-          },
-        }),
-      },
-      include: {
-        classTasks: {
-          include: {
-            task: { select: { id: true } },
+          });
+        }
+
+        if (toRemove.length) {
+          await tx.classTask.deleteMany({
+            where: {
+              id: { in: toRemove },
+            },
+          });
+        }
+      }
+
+      return tx.class.findUnique({
+        where: { id },
+        include: {
+          classTasks: {
+            include: {
+              task: { select: { id: true } },
+            },
           },
         },
-      },
+      });
     });
   }
 
@@ -346,16 +371,28 @@ export class ClassService {
         ...(role === 'student' ? { scheduledTask: { isActive: true } } : {}),
       },
       include: {
-        task: { select: { id: true, title: true, type: true, status: true, _count: { select: { questions: true } } }, },
-        scheduledTask: {
-          select:{
-            id:true, scheduledAt:true, dueAt:true, isActive:true
-          }
+        task: {
+          select: {
+            id: true,
+            title: true,
+            type: true,
+            status: true,
+            _count: { select: { questions: true } },
+          },
         },
-        class:{
-          select:{
-            id:true, name:true
-          }
+        scheduledTask: {
+          select: {
+            id: true,
+            scheduledAt: true,
+            dueAt: true,
+            isActive: true,
+          },
+        },
+        class: {
+          select: {
+            id: true,
+            name: true,
+          },
         },
       },
     });

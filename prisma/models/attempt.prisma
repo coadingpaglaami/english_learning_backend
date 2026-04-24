@@ -12,6 +12,10 @@ model Attempt {
   task   Task   @relation(fields: [taskId], references: [id])
 
   // Link to the specific schedule so we know which class this was for
+  isPassed         Boolean  @default(false)
+  achievedCriteria String[] // Store codes like ["Ra", "Rb"] on completion
+  missingCriteria  String[] // Store codes like ["Rc"] if they failed
+
   scheduledTaskId String
   scheduledTask   ClassScheduledTask @relation(fields: [scheduledTaskId], references: [id])
 

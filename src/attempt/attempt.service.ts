@@ -14,19 +14,97 @@ import { sanitizeQuestion } from './sanitize/sanitize-question';
 export class AttemptService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private calculateFinalResult(attempt: any) {
+    const { task, answers, score } = attempt;
+    const reading = task.readingContent;
 
- private buildResult(attempt: any) {
+    // Default: Score-based (for standard tasks or Trinity)
+    if (!reading || reading.passLogic === 'SCORE_ONLY') {
+      const passMark =
+        reading?.passMark ?? Math.floor(task.questions.length * 0.6);
+      return {
+        isPassed: score >= passMark,
+        missingCriteria: [],
+        achievedCriteria: [],
+        requiredCriteria: [],
+      };
+    }
 
+    // 1. Get all unique criteria assigned to this test
+    const requiredCriteria = [
+      ...new Set(
+        task.questions.map((q) => q.criterion?.code).filter((code) => !!code),
+      ),
+    ] as string[];
+
+    // 2. Get criteria achieved (student got the question correct)
+    const achievedCriteria = [
+      ...new Set(
+        answers
+          .filter((a) => a.isCorrect && a.question.criterion?.code)
+          .map((a) => a.question.criterion.code),
+      ),
+    ] as string[];
+
+    // 3. Find missing criteria
+    const missingCriteria = requiredCriteria.filter(
+      (c) => !achievedCriteria.includes(c),
+    );
+    const allCriteriaMet = missingCriteria.length === 0;
+
+    let isPassed = false;
+
+    // 4. Apply Awarding Body Logic
+    switch (reading.awardingBody) {
+      case 'ESB': // ESB Logic
+        isPassed = allCriteriaMet;
+        break;
+
+      case 'ASCENTIS': // Ascentis Logic
+      case 'GATEWAY': // Gateway Logic
+        const reachScore = score >= (reading.passMark ?? 0);
+        isPassed = allCriteriaMet && reachScore;
+        break;
+
+      default:
+        isPassed = score >= (reading.passMark ?? 0);
+    }
+
+    return {
+      isPassed,
+      missingCriteria,
+      achievedCriteria,
+      requiredCriteria,
+    };
+  }
+
+  private buildResult(attempt: any) {
     const total = attempt.task.questions.length;
     const score = attempt.score;
-    const percentage = Math.round((score / total) * 100);
+    const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
 
+    // 1. Prepare Exam Breakdown (Awarding Body Logic)
+    // We only include this if the task is a READING task and has an awarding body assigned.
+    const reading = attempt.task.readingContent;
+    const examBreakdown = reading?.awardingBody
+      ? {
+          awardingBody: reading.awardingBody,
+          passLogic: reading.passLogic,
+          passMarkRequired: reading.passMark,
+          // These fields were saved to the Attempt record during the processAnswer transaction
+          isPassed: attempt.isPassed,
+          achievedCriteria: attempt.achievedCriteria || [],
+          missingCriteria: attempt.missingCriteria || [],
+        }
+      : null;
+
+    // 2. Map individual question results
     const results = attempt.answers.map((answer: any) => {
-
       const question = attempt.task.questions.find(
-        (q: any) => q.id === answer.questionId
+        (q: any) => q.id === answer.questionId,
       );
 
+      // Get the specific builder for the question type
       const builder =
         resultBuilders[question.type] ??
         (() => ({
@@ -42,15 +120,38 @@ export class AttemptService {
         questionId: answer.questionId,
         type: question.type,
         correct: answer.isCorrect,
+        order: question.order,
+        // Include Criterion info so UI can show "Tested Skill: Ra (Main Point)"
+        criterion: question.criterion
+          ? {
+              code: question.criterion.code,
+              description: question.criterion.description,
+            }
+          : null,
         ...resultData,
       };
     });
 
+    // 3. Return the comprehensive result object
     return {
+      // Basic stats
       score,
       total,
       percentage,
-      results,
+      status: attempt.status,
+
+      // Logic-based pass/fail
+      // If it's an exam, we use the logic pass. If it's a standard task, we use percentage >= 60%
+      isPassed: reading?.awardingBody ? attempt.isPassed : percentage >= 60,
+
+      // Metadata
+      completedAt: attempt.completedAt,
+
+      // Breakdown of awarding body rules
+      examBreakdown,
+
+      // Detailed question-by-question list
+      results: results.sort((a, b) => a.order - b.order),
     };
   }
 
@@ -84,8 +185,7 @@ export class AttemptService {
     return attempt;
   }
 
-   async getAttemptState(attemptId: string, studentId: string) {
-
+  async getAttemptState(attemptId: string, studentId: string) {
     const attempt = await this.prisma.attempt.findUnique({
       where: { id: attemptId },
       include: {
@@ -94,7 +194,10 @@ export class AttemptService {
             readingContent: true,
             grammarContent: true,
             vocabularyItems: true,
-            questions: { orderBy: { order: 'asc' } },
+            questions: {
+              orderBy: { order: 'asc' },
+              include: { criterion: true },
+            },
           },
         },
         answers: true,
@@ -132,11 +235,19 @@ export class AttemptService {
     studentId: string,
     dto: SubmitAnswerDto,
   ) {
-
     const attempt = await this.prisma.attempt.findUnique({
       where: { id: attemptId },
       include: {
-        task: { include: { questions: { orderBy: { order: 'asc' } } } },
+        task: {
+          include: {
+            questions: {
+              include: { criterion: true },
+              orderBy: { order: 'asc' },
+            },
+            readingContent: true,
+          },
+        },
+        answers: { include: { question: { include: { criterion: true } } } },
       },
     });
 
@@ -153,44 +264,61 @@ export class AttemptService {
       throw new BadRequestException('Incorrect question sequence');
     }
 
+    console.log(currentQuestion.config,'from service')
+    console.log(dto.answerData)
+
     const isCorrect = judgeAnswer(
       currentQuestion.type,
       currentQuestion.config,
       dto.answerData,
     );
-
     const isLastQuestion =
       attempt.currentQuestionIndex === attempt.task.questions.length - 1;
 
     return this.prisma.$transaction(async (tx) => {
-
-      await tx.studentAnswer.create({
+      // Create the answer record
+      const newAnswer = await tx.studentAnswer.create({
         data: {
           attemptId,
           questionId: dto.questionId,
           answerData: dto.answerData,
           isCorrect,
         },
+        include: { question: { include: { criterion: true } } },
       });
+
+      // Update basic stats
+      const newScore = isCorrect ? attempt.score + 1 : attempt.score;
+
+      // Prepare final results if finished
+      let finalUpdateData: any = {
+        currentQuestionIndex: isLastQuestion
+          ? attempt.currentQuestionIndex
+          : { increment: 1 },
+        score: isCorrect ? { increment: 1 } : undefined,
+        status: isLastQuestion ? 'COMPLETED' : 'IN_PROGRESS',
+        completedAt: isLastQuestion ? new Date() : null,
+      };
+
+      if (isLastQuestion) {
+        // Run the Logic Engine
+        const result = this.calculateFinalResult({
+          ...attempt,
+          score: newScore,
+          answers: [...attempt.answers, newAnswer],
+        });
+
+        finalUpdateData.isPassed = result.isPassed;
+        finalUpdateData.achievedCriteria = result.achievedCriteria;
+        finalUpdateData.missingCriteria = result.missingCriteria;
+      }
 
       const updatedAttempt = await tx.attempt.update({
         where: { id: attemptId },
-        data: {
-          currentQuestionIndex: isLastQuestion
-            ? attempt.currentQuestionIndex
-            : { increment: 1 },
-          score: isCorrect ? { increment: 1 } : undefined,
-          status: isLastQuestion ? 'COMPLETED' : 'IN_PROGRESS',
-          completedAt: isLastQuestion ? new Date() : null,
-        },
+        data: finalUpdateData,
       });
 
-      return {
-        isCorrect,
-        isLastQuestion,
-        nextIndex: updatedAttempt.currentQuestionIndex,
-        status: updatedAttempt.status,
-      };
+      return { isCorrect, isLastQuestion, status: updatedAttempt.status };
     });
   }
 }

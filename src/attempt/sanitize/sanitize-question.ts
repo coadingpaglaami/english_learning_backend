@@ -1,12 +1,10 @@
 export const sanitizeQuestion = (question: any) => {
-
   const config =
     typeof question.config === 'string'
       ? JSON.parse(question.config)
       : question.config;
 
   switch (question.type) {
-
     case 'MCQ':
       return {
         ...question,
@@ -35,6 +33,14 @@ export const sanitizeQuestion = (question: any) => {
             left: pair.left,
             right: pair.right,
           })),
+        },
+      };
+
+    case 'QUESTION_ANSWER':
+      return {
+        ...question,
+        config: {
+          question: config.question,
         },
       };
 
