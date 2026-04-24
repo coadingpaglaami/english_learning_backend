@@ -31,15 +31,6 @@ export class CriteriaService {
         code: dto.code,
         description: dto.description,
       },
-      include: {
-        questions: {
-          select: {
-            id: true,
-            order: true,
-            type: true,
-          },
-        },
-      },
     });
   }
 
