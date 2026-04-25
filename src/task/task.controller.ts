@@ -21,6 +21,7 @@ import {
   FileFieldsInterceptor,
 } from '@nestjs/platform-express';
 import { UpdateTaskDto } from './dto/update-task.dto';
+import { PaginationQueryDto } from 'common/dto/pagination.dto';
 
 @Controller('tasks')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -97,6 +98,15 @@ export class TaskController {
   @Roles(['admin', 'teacher'])
   async findAll(@Query() query: TaskQueryDto, @Req() req) {
     return this.taskService.findAll(req.user.role, req.user.sub, query);
+  }
+
+  @Get('scheduled')
+  async getAllScheduledTasks(
+    @Req() req: any,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    console.log('hit the api', req.user.sub);
+    return await this.taskService.getAllScheduledTasks(req.user, pagination);
   }
 
   @Patch(':id/approve')

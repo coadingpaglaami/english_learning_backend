@@ -179,6 +179,14 @@ export class ClassService {
         }
 
         if (toRemove.length) {
+          const scheduled = await tx.classScheduledTask.findFirst({
+            where: { classTaskId: { in: toRemove } },
+          });
+          if (scheduled) {
+            throw new BadRequestException(
+              'Cannot remove a task that has already been scheduled.',
+            );
+          }
           await tx.classTask.deleteMany({
             where: {
               id: { in: toRemove },
@@ -363,11 +371,13 @@ export class ClassService {
     });
   }
 
-  async getScheduledTasks(classId: string, role: string) {
+  async getScheduledTasks(classId: string, req: any) {
+    const role = req.role;
+    const studentId = req.sub;
+
     const classTasks = await this.prisma.classTask.findMany({
       where: {
         classId,
-        // Students only see active scheduled tasks
         ...(role === 'student' ? { scheduledTask: { isActive: true } } : {}),
       },
       include: {
@@ -380,18 +390,28 @@ export class ClassService {
             _count: { select: { questions: true } },
           },
         },
+
         scheduledTask: {
-          select: {
-            id: true,
-            scheduledAt: true,
-            dueAt: true,
-            isActive: true,
+          include: {
+            attempts: {
+              where:
+                role === 'student' ? { studentId } : { status: 'COMPLETED' },
+              select: {
+                id: true,
+                status: true,
+                _count: {
+                  select: { answers: true },
+                },
+              },
+            },
           },
         },
+
         class: {
           select: {
             id: true,
             name: true,
+            _count: { select: { students: true } },
           },
         },
       },
@@ -399,9 +419,63 @@ export class ClassService {
 
     return classTasks
       .filter((ct) => ct.scheduledTask !== null)
-      .map(this.formatClassTask);
-  }
+      .map((ct) => {
+        const base = this.formatClassTask(ct);
 
+        const totalQuestions = ct.task._count.questions;
+
+        // ----------------------
+        // TEACHER VIEW
+        // ----------------------
+        if (role !== 'student') {
+          const totalStudents = ct.class._count.students;
+          const completedStudents = ct.scheduledTask!.attempts.length;
+
+          const completionRate =
+            totalStudents === 0
+              ? 0
+              : Math.round((completedStudents / totalStudents) * 100);
+
+          return {
+            ...base,
+            totalStudents,
+            completedStudents,
+            completionRate,
+          };
+        }
+
+        // ----------------------
+        // STUDENT VIEW
+        // ----------------------
+        const attempt = ct.scheduledTask!.attempts[0];
+
+        let answeredQuestions = 0;
+        let status = 'NOT_STARTED';
+
+        if (attempt) {
+          answeredQuestions = attempt._count.answers;
+
+          if (attempt.status === 'COMPLETED') {
+            status = 'COMPLETED';
+          } else {
+            status = 'IN_PROGRESS';
+          }
+        }
+
+        const progressPercentage =
+          totalQuestions === 0
+            ? 0
+            : Math.round((answeredQuestions / totalQuestions) * 100);
+
+        return {
+          ...base,
+          totalQuestions,
+          answeredQuestions,
+          progressPercentage,
+          status,
+        };
+      });
+  }
   async unscheduleTask(classId: string, classTaskId: string) {
     // Verify it belongs to this class
     const classTask = await this.prisma.classTask.findFirst({
@@ -415,5 +489,82 @@ export class ClassService {
     });
 
     return { message: 'Task unscheduled successfully' };
+  }
+
+  async getScheduledTaskAnalytics(classId: string, scheduledTaskId: string) {
+    const classData = await this.prisma.class.findUnique({
+      where: { id: classId },
+      select: {
+        _count: { select: { students: true } },
+      },
+    });
+
+    const totalStudents = classData?._count.students ?? 0;
+
+    const completedStudents = await this.prisma.attempt.count({
+      where: {
+        scheduledTaskId,
+        status: 'COMPLETED',
+      },
+    });
+
+    const completionRate =
+      totalStudents === 0
+        ? 0
+        : Math.round((completedStudents / totalStudents) * 100);
+
+    // total answers per question
+    const totalAnswers = await this.prisma.studentAnswer.groupBy({
+      by: ['questionId'],
+      where: {
+        attempt: {
+          scheduledTaskId,
+          status: 'COMPLETED',
+        },
+      },
+      _count: {
+        questionId: true,
+      },
+    });
+
+    // correct answers per question
+    const correctAnswers = await this.prisma.studentAnswer.groupBy({
+      by: ['questionId'],
+      where: {
+        isCorrect: true,
+        attempt: {
+          scheduledTaskId,
+          status: 'COMPLETED',
+        },
+      },
+      _count: {
+        questionId: true,
+      },
+    });
+
+    // convert correct answers to map
+    const correctMap = new Map(
+      correctAnswers.map((q) => [q.questionId, q._count.questionId]),
+    );
+
+    const questions = totalAnswers.map((q) => {
+      const correct = correctMap.get(q.questionId) ?? 0;
+      const total = q._count.questionId;
+
+      return {
+        questionId: q.questionId,
+        totalAnswers: total,
+        correctAnswers: correct,
+        correctPercentage:
+          total === 0 ? 0 : Math.round((correct / total) * 100),
+      };
+    });
+
+    return {
+      totalStudents,
+      completedStudents,
+      completionRate,
+      questions,
+    };
   }
 }

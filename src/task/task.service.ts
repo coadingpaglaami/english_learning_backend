@@ -14,6 +14,7 @@ import {
 import { UploadService } from 'src/upload/upload.service';
 import { QuestionType } from 'src/database/prisma-client/enums';
 import { UpdateTaskDto } from './dto/update-task.dto';
+import { PaginationQueryDto } from 'common/dto/pagination.dto';
 
 @Injectable()
 export class TaskService {
@@ -217,6 +218,8 @@ export class TaskService {
           if (q.type !== undefined) updateData.type = q.type;
           if (q.order !== undefined) updateData.order = q.order;
           if (q.config !== undefined) updateData.config = q.config;
+          if (q.criterionId !== undefined)
+            updateData.criterionId = q.criterionId;
 
           await tx.question.update({
             where: { id: q.id },
@@ -235,6 +238,7 @@ export class TaskService {
             type: q.type as QuestionType,
             order: q.order,
             config: q.config,
+            criterionId: q.criterionId,
           })),
         });
       }
@@ -320,6 +324,8 @@ export class TaskService {
           dto.entryType !== undefined ||
           dto.removePassageImage ||
           newPassageImageUrl !== undefined;
+          dto.awardingBody !== undefined ||
+          dto.passMark !== undefined;
 
         if (shouldUpdateReading) {
           if (existingTask.readingContent) {
@@ -335,6 +341,10 @@ export class TaskService {
                     : dto.removePassageImage
                       ? null
                       : existingTask.readingContent.imageUrl,
+                awardingBody:
+                  dto.awardingBody ?? existingTask.readingContent.awardingBody,
+                passMark:
+                  dto.passMark ?? existingTask.readingContent.passMark,
               },
             });
           } else {
@@ -514,4 +524,148 @@ export class TaskService {
       data: { status },
     });
   }
+
+async getAllScheduledTasks(user: any, pagination: PaginationQueryDto) {
+  const role = user.role;
+  const studentId = user.sub;
+
+  const page = pagination.page ?? 1;
+  const limit = pagination.limit ?? 10;
+  const skip = (page - 1) * limit;
+
+  const where =
+    role === 'student'
+      ? { isActive: true }
+      : {};
+
+  const [scheduledTasks, total] = await this.prisma.$transaction([
+    this.prisma.classScheduledTask.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { scheduledAt: 'desc' },
+
+      include: {
+        classTask: {
+          include: {
+            class: {
+              select: {
+                id: true,
+                name: true,
+                _count: { select: { students: true } },
+              },
+            },
+            task: {
+              select: {
+                id: true,
+                title: true,
+                type: true,
+                _count: { select: { questions: true } },
+              },
+            },
+          },
+        },
+
+        attempts: {
+          where:
+            role === 'student'
+              ? { studentId }
+              : { status: 'COMPLETED' },
+          select: {
+            id: true,
+            status: true,
+            _count: {
+              select: { answers: true },
+            },
+          },
+        },
+      },
+    }),
+
+    this.prisma.classScheduledTask.count({ where }),
+  ]);
+
+  const data = scheduledTasks.map((st) => {
+    const className = st.classTask.class.name;
+    const totalStudents = st.classTask.class._count.students;
+    const totalQuestions = st.classTask.task._count.questions;
+
+    // --------------------
+    // TEACHER VIEW
+    // --------------------
+    if (role !== 'student') {
+      const completedStudents = st.attempts.length;
+
+      const completionRate =
+        totalStudents === 0
+          ? 0
+          : Math.round((completedStudents / totalStudents) * 100);
+
+      return {
+        scheduledTaskId: st.id,
+        title: st.classTask.task.title,
+        type: st.classTask.task.type,
+
+        className,
+
+        totalQuestions,
+        totalStudents,
+        completedStudents,
+        completionRate,
+
+        scheduledAt: st.scheduledAt,
+        dueAt: st.dueAt,
+      };
+    }
+
+    // --------------------
+    // STUDENT VIEW
+    // --------------------
+    const attempt = st.attempts[0];
+
+    let answeredQuestions = 0;
+    let status = 'NOT_STARTED';
+
+    if (attempt) {
+      answeredQuestions = attempt._count.answers;
+
+      if (attempt.status === 'COMPLETED') {
+        status = 'COMPLETED';
+      } else {
+        status = 'IN_PROGRESS';
+      }
+    }
+
+    const progressPercentage =
+      totalQuestions === 0
+        ? 0
+        : Math.round((answeredQuestions / totalQuestions) * 100);
+
+    return {
+      scheduledTaskId: st.id,
+      title: st.classTask.task.title,
+      type: st.classTask.task.type,
+
+      className,
+
+      totalQuestions,
+      answeredQuestions,
+      progressPercentage,
+      status,
+
+      scheduledAt: st.scheduledAt,
+      dueAt: st.dueAt,
+    };
+  });
+
+  return {
+    data,
+    meta: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+}
 }

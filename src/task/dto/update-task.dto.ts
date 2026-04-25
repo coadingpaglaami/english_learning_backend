@@ -10,9 +10,9 @@ import {
 } from 'class-validator';
 import { Type, Transform, plainToInstance } from 'class-transformer';
 import {
+  AwardingBody,
   EntryType,
   TaskStatus,
-  QuestionType,
 } from 'src/database/prisma-client/enums';
 
 export class UpdateQuestionDto {
@@ -30,6 +30,10 @@ export class UpdateQuestionDto {
 
   @IsOptional()
   config?: any;
+
+  @IsOptional()
+  @IsString()
+  criterionId?: string; // Add this
 }
 
 export class NewQuestionDto {
@@ -42,6 +46,10 @@ export class NewQuestionDto {
 
   @IsOptional()
   config?: any;
+
+  @IsOptional()
+  @IsString()
+  criterionId?: string; // Add this
 }
 
 export class UpdateWordDto {
@@ -103,9 +111,22 @@ export class UpdateTaskDto {
   content?: string;
 
   @IsOptional()
+  @IsEnum(AwardingBody)
+  awardingBody?: AwardingBody;
+
+  @IsOptional()
+  @IsInt()
+  @Transform(({ value }) => (value ? parseInt(value, 10) : undefined))
+  passMark?: number;
+
+  @IsOptional()
   @Transform(({ value }) => {
     if (typeof value === 'string') {
-      try { return JSON.parse(value); } catch { return value; }
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
     }
     return value;
   })
@@ -116,7 +137,11 @@ export class UpdateTaskDto {
   @IsOptional()
   @Transform(({ value }) => {
     if (typeof value === 'string') {
-      try { return JSON.parse(value); } catch { return value; }
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
     }
     return value;
   })
@@ -128,7 +153,11 @@ export class UpdateTaskDto {
   @Transform(({ value }) => {
     let parsed = value;
     if (typeof value === 'string') {
-      try { parsed = JSON.parse(value); } catch { return value; }
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        return value;
+      }
     }
     if (Array.isArray(parsed)) {
       return plainToInstance(UpdateQuestionDto, parsed);
@@ -144,7 +173,11 @@ export class UpdateTaskDto {
   @Transform(({ value }) => {
     let parsed = value;
     if (typeof value === 'string') {
-      try { parsed = JSON.parse(value); } catch { return value; }
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        return value;
+      }
     }
     if (Array.isArray(parsed)) {
       return plainToInstance(NewQuestionDto, parsed);
@@ -159,7 +192,11 @@ export class UpdateTaskDto {
   @IsOptional()
   @Transform(({ value }) => {
     if (typeof value === 'string') {
-      try { return JSON.parse(value); } catch { return value; }
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
     }
     return value;
   })
@@ -171,7 +208,11 @@ export class UpdateTaskDto {
   @Transform(({ value }) => {
     let parsed = value;
     if (typeof value === 'string') {
-      try { parsed = JSON.parse(value); } catch { return value; }
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        return value;
+      }
     }
     if (Array.isArray(parsed)) {
       return plainToInstance(UpdateWordDto, parsed);
@@ -187,7 +228,11 @@ export class UpdateTaskDto {
   @Transform(({ value }) => {
     let parsed = value;
     if (typeof value === 'string') {
-      try { parsed = JSON.parse(value); } catch { return value; }
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        return value;
+      }
     }
     if (Array.isArray(parsed)) {
       return plainToInstance(NewWordDto, parsed);

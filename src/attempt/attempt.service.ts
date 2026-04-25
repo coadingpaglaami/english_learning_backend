@@ -18,18 +18,6 @@ export class AttemptService {
     const { task, answers, score } = attempt;
     const reading = task.readingContent;
 
-    // Default: Score-based (for standard tasks or Trinity)
-    if (!reading || reading.passLogic === 'SCORE_ONLY') {
-      const passMark =
-        reading?.passMark ?? Math.floor(task.questions.length * 0.6);
-      return {
-        isPassed: score >= passMark,
-        missingCriteria: [],
-        achievedCriteria: [],
-        requiredCriteria: [],
-      };
-    }
-
     // 1. Get all unique criteria assigned to this test
     const requiredCriteria = [
       ...new Set(
@@ -50,13 +38,29 @@ export class AttemptService {
     const missingCriteria = requiredCriteria.filter(
       (c) => !achievedCriteria.includes(c),
     );
-    const allCriteriaMet = missingCriteria.length === 0;
+
+    // Check if they met all criteria (if none were required, this inherently passes criteria check)
+    const allCriteriaMet =
+      requiredCriteria.length > 0 ? missingCriteria.length === 0 : true;
+
+    // Default: Score-based (for standard tasks, non-reading, or SCORE_ONLY logic)
+    if (!reading || reading.passLogic === 'SCORE_ONLY') {
+      const passMark =
+        reading?.passMark ?? Math.floor(task.questions.length * 0.6);
+
+      return {
+        isPassed: score >= passMark,
+        missingCriteria, // Calculated dynamically now
+        achievedCriteria, // Calculated dynamically now
+        requiredCriteria,
+      };
+    }
 
     let isPassed = false;
 
-    // 4. Apply Awarding Body Logic
+    // 4. Apply Awarding Body Logic (Used for CRITERIA_ONLY or CRITERIA_AND_SCORE logic)
     switch (reading.awardingBody) {
-      case 'ESB': // ESB Logic
+      case 'ESB': // ESB Logic: Must meet all criteria
         isPassed = allCriteriaMet;
         break;
 
@@ -264,8 +268,8 @@ export class AttemptService {
       throw new BadRequestException('Incorrect question sequence');
     }
 
-    console.log(currentQuestion.config,'from service')
-    console.log(dto.answerData)
+    console.log(currentQuestion.config, 'from service');
+    console.log(dto.answerData);
 
     const isCorrect = judgeAnswer(
       currentQuestion.type,

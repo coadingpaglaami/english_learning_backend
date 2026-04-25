@@ -107,10 +107,19 @@ export class ClassController {
   }
 
   @Get(':id/scheduled-tasks')
-  getScheduledTasks(@Param('id') id: string, @Req() req) {
-    return this.classService.getScheduledTasks(id, req.user.role);
+  getScheduledTasks(@Param('id') id: string, @Req() req: any) {
+    console.log('Getting scheduled tasks for class', id, 'and user', req.user);
+    return this.classService.getScheduledTasks(id, req.user);
   }
 
+  @Get(':id/scheduled-tasks/:scheduledTaskId/analytics')
+  @Roles(['teacher'])
+  getScheduledTaskAnalytics(
+    @Param('id') id: string,
+    @Param('scheduledTaskId') scheduledTaskId: string,
+  ) {
+    return this.classService.getScheduledTaskAnalytics(id, scheduledTaskId);
+  }
 
   @Delete(':id/schedule/:classTaskId')
   @Roles(['teacher'])
