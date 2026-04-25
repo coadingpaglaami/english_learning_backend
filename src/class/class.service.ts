@@ -11,6 +11,7 @@ import {
   UpdateClassDto,
 } from './dto/create.dto';
 import { PaginationQueryDto } from 'common/dto/pagination.dto';
+import { AttemptStatus } from 'src/database/prisma-client/enums';
 
 @Injectable()
 export class ClassService {
@@ -223,72 +224,135 @@ export class ClassService {
     });
   }
 
-  async getStudents(classId: string, query: StudentQuery) {
-    const { page = 1, limit = 10, search } = query;
+async getStudents(classId: string, query: StudentQuery) {
+  const { page = 1, limit = 10, search } = query;
 
-    const skip = (page - 1) * limit;
+  const skip = (page - 1) * limit;
 
-    const where: any = {
-      role: 'student',
-      enrolledClasses: {
-        some: { id: classId },
+  const where: any = {
+    role: 'student',
+    enrolledClasses: {
+      some: { id: classId },
+    },
+    ...(search && {
+      OR: [
+        { email: { contains: search, mode: 'insensitive' } },
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+        {
+          student: {
+            username: {
+              contains: search,
+              mode: 'insensitive',
+            },
+          },
+        },
+      ],
+    }),
+  };
+
+  const [students, total, totalScheduledTasks] = await this.prisma.$transaction([
+    this.prisma.user.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: {
+        createdAt: 'desc',
       },
-
-      ...(search && {
-        OR: [
-          { email: { contains: search, mode: 'insensitive' } },
-          { firstName: { contains: search, mode: 'insensitive' } },
-          { lastName: { contains: search, mode: 'insensitive' } },
-
-          {
-            student: {
-              username: {
-                contains: search,
-                mode: 'insensitive',
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        avatarUrl: true,
+        createdAt: true,
+        isActive: true,
+        isOnboarded: true,
+        student: {
+          select: {
+            username: true,
+          },
+        },
+        attempts: {
+          where: {
+            scheduledTask: {
+              classTask: {
+                classId,
               },
             },
           },
-        ],
-      }),
-    };
-
-    const [students, total] = await this.prisma.$transaction([
-      this.prisma.user.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: {
-          createdAt: 'desc',
-        },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          avatarUrl: true,
-          createdAt: true,
-          student: {
-            select: {
-              username: true,
-            },
+          select: {
+            id: true,
+            status: true,
+            score: true,
+            isPassed: true,
+            scheduledTaskId: true,
+            startedAt: true,
+            completedAt: true,
           },
         },
-      }),
-
-      this.prisma.user.count({ where }),
-    ]);
-
-    return {
-      data: students,
-      meta: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
       },
-    };
-  }
+    }),
 
+    this.prisma.user.count({ where }),
+
+    this.prisma.classScheduledTask.count({
+      where: {
+        classTask: {
+          classId,
+        },
+        isActive: true,
+      },
+    }),
+  ]);
+
+  return {
+    data: students.map((student) => {
+      const completedAttempts = student.attempts.filter(
+        (attempt) => attempt.status === 'COMPLETED',
+      );
+
+      const completedTasks = completedAttempts.length;
+
+      const progressPercentage =
+        totalScheduledTasks === 0
+          ? 0
+          : Math.round((completedTasks / totalScheduledTasks) * 100);
+
+      const passedTasks = completedAttempts.filter(
+        (attempt) => attempt.isPassed,
+      ).length;
+
+      return {
+        id: student.id,
+        firstName: student.firstName,
+        lastName: student.lastName,
+        fullName: `${student.firstName} ${student.lastName}`,
+        email: student.email,
+        avatarUrl: student.avatarUrl,
+        username: student.student?.username ?? null,
+        isActive: student.isActive,
+        isOnboarded: student.isOnboarded,
+        joinedAt: student.createdAt,
+
+        progress: {
+          totalTasks: totalScheduledTasks,
+          startedTasks: student.attempts.length,
+          completedTasks,
+          passedTasks,
+          progressPercentage,
+        },
+      };
+    }),
+
+    meta: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+}
   async removeStudents(classId: string, studentIds: string[]) {
     return this.prisma.class.update({
       where: { id: classId },
@@ -491,80 +555,266 @@ export class ClassService {
     return { message: 'Task unscheduled successfully' };
   }
 
-  async getScheduledTaskAnalytics(classId: string, scheduledTaskId: string) {
-    const classData = await this.prisma.class.findUnique({
-      where: { id: classId },
-      select: {
-        _count: { select: { students: true } },
+async getScheduledTaskAnalytics(classId: string, scheduledTaskId: string) {
+  const scheduledTask = await this.prisma.classScheduledTask.findUnique({
+    where: { id: scheduledTaskId },
+    select: {
+      classTask: {
+        select: {
+          classId: true,
+          task: {
+            select: {
+              id: true,
+              title: true,
+              type: true,
+            },
+          },
+        },
       },
-    });
+    },
+  });
 
-    const totalStudents = classData?._count.students ?? 0;
+  if (!scheduledTask || scheduledTask.classTask.classId !== classId) {
+    throw new NotFoundException('Scheduled task not found for this class');
+  }
 
-    const completedStudents = await this.prisma.attempt.count({
-      where: {
+  const classData = await this.prisma.class.findUnique({
+    where: { id: classId },
+    select: {
+      _count: { select: { students: true } },
+    },
+  });
+
+  const totalStudents = classData?._count.students ?? 0;
+
+  const completedStudents = await this.prisma.attempt.count({
+    where: {
+      scheduledTaskId,
+      status: 'COMPLETED',
+    },
+  });
+
+  const completionRate =
+    totalStudents === 0
+      ? 0
+      : Math.round((completedStudents / totalStudents) * 100);
+
+  const totalAnswers = await this.prisma.studentAnswer.groupBy({
+    by: ['questionId'],
+    where: {
+      attempt: {
         scheduledTaskId,
         status: 'COMPLETED',
       },
-    });
+    },
+    _count: {
+      questionId: true,
+    },
+  });
 
-    const completionRate =
-      totalStudents === 0
-        ? 0
-        : Math.round((completedStudents / totalStudents) * 100);
-
-    // total answers per question
-    const totalAnswers = await this.prisma.studentAnswer.groupBy({
-      by: ['questionId'],
-      where: {
-        attempt: {
-          scheduledTaskId,
-          status: 'COMPLETED',
-        },
+  const correctAnswers = await this.prisma.studentAnswer.groupBy({
+    by: ['questionId'],
+    where: {
+      isCorrect: true,
+      attempt: {
+        scheduledTaskId,
+        status: 'COMPLETED',
       },
-      _count: {
-        questionId: true,
-      },
-    });
+    },
+    _count: {
+      questionId: true,
+    },
+  });
 
-    // correct answers per question
-    const correctAnswers = await this.prisma.studentAnswer.groupBy({
-      by: ['questionId'],
-      where: {
-        isCorrect: true,
-        attempt: {
-          scheduledTaskId,
-          status: 'COMPLETED',
-        },
-      },
-      _count: {
-        questionId: true,
-      },
-    });
+  const correctMap = new Map(
+    correctAnswers.map((q) => [q.questionId, q._count.questionId]),
+  );
 
-    // convert correct answers to map
-    const correctMap = new Map(
-      correctAnswers.map((q) => [q.questionId, q._count.questionId]),
-    );
-
-    const questions = totalAnswers.map((q) => {
+  const analyticsMap = new Map(
+    totalAnswers.map((q) => {
       const correct = correctMap.get(q.questionId) ?? 0;
       const total = q._count.questionId;
 
+      return [
+        q.questionId,
+        {
+          totalAnswers: total,
+          correctAnswers: correct,
+          correctPercentage:
+            total === 0 ? 0 : Math.round((correct / total) * 100),
+        },
+      ];
+    }),
+  );
+
+  const taskQuestions = await this.prisma.question.findMany({
+    where: {
+      taskId: scheduledTask.classTask.task.id,
+    },
+    select: {
+      id: true,
+      type: true,
+      config: true,
+      order: true,
+    },
+    orderBy: {
+      order: 'asc',
+    },
+  });
+
+  const questions = taskQuestions.map((question) => {
+    const analytics = analyticsMap.get(question.id) ?? {
+      totalAnswers: 0,
+      correctAnswers: 0,
+      correctPercentage: 0,
+    };
+
+    return {
+      questionId: question.id,
+      type: question.type,
+      config: question.config,
+      order: question.order,
+      ...analytics,
+    };
+  });
+
+  return {
+    task: scheduledTask.classTask.task,
+    totalStudents,
+    completedStudents,
+    completionRate,
+    questions,
+  };
+}
+
+async getClassStudentProgress(teacherId: string, classId: string) {
+    const classData = await this.prisma.class.findFirst({
+      where: {
+        id: classId,
+        teacherId,
+      },
+      include: {
+        students: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
+        },
+        classTasks: {
+          where: {
+            scheduledTask: {
+              isNot: null,
+            },
+          },
+          include: {
+            scheduledTask: {
+              select: {
+                id: true,
+                isActive: true,
+                scheduledAt: true,
+                dueAt: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!classData) {
+      throw new NotFoundException('Class not found or you do not own this class');
+    }
+
+    const scheduledTaskIds = classData.classTasks
+      .map((classTask) => classTask.scheduledTask?.id)
+      .filter(Boolean) as string[];
+
+    const totalScheduledTasks = scheduledTaskIds.length;
+
+    const attempts = await this.prisma.attempt.findMany({
+      where: {
+        scheduledTaskId: {
+          in: scheduledTaskIds,
+        },
+        studentId: {
+          in: classData.students.map((student) => student.id),
+        },
+      },
+      select: {
+        studentId: true,
+        scheduledTaskId: true,
+        status: true,
+        score: true,
+        completedAt: true,
+      },
+    });
+
+    const students = classData.students.map((student) => {
+      const studentAttempts = attempts.filter(
+        (attempt) => attempt.studentId === student.id,
+      );
+
+      const completedAttempts = studentAttempts.filter(
+        (attempt) => attempt.status === AttemptStatus.COMPLETED,
+      );
+
+      const inProgressAttempts = studentAttempts.filter(
+        (attempt) => attempt.status === AttemptStatus.IN_PROGRESS,
+      );
+
+      const completedTasks = completedAttempts.length;
+      const inProgressTasks = inProgressAttempts.length;
+
+      const notStartedTasks =
+        totalScheduledTasks - completedTasks - inProgressTasks;
+
+      const progressPercentage =
+        totalScheduledTasks === 0
+          ? 0
+          : Math.round((completedTasks / totalScheduledTasks) * 100);
+
+      const avgScore =
+        completedTasks === 0
+          ? 0
+          : Math.round(
+              completedAttempts.reduce(
+                (sum, attempt) => sum + attempt.score,
+                0,
+              ) / completedTasks,
+            );
+
+      const status =
+        avgScore < 60
+          ? 'PROBLEMATIC'
+          : avgScore < 80
+            ? 'AVERAGE'
+            : 'GOOD';
+
       return {
-        questionId: q.questionId,
-        totalAnswers: total,
-        correctAnswers: correct,
-        correctPercentage:
-          total === 0 ? 0 : Math.round((correct / total) * 100),
+        studentId: student.id,
+        name: `${student.firstName} ${student.lastName}`,
+        email: student.email,
+
+        totalScheduledTasks,
+        completedTasks,
+        inProgressTasks,
+        notStartedTasks: Math.max(notStartedTasks, 0),
+
+        progressPercentage,
+        avgScore,
+        status,
       };
     });
 
     return {
-      totalStudents,
-      completedStudents,
-      completionRate,
-      questions,
+      classId: classData.id,
+      className: classData.name,
+      totalStudents: classData.students.length,
+      totalScheduledTasks,
+      students,
     };
   }
+
+
 }

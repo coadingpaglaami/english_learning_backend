@@ -121,6 +121,16 @@ export class ClassController {
     return this.classService.getScheduledTaskAnalytics(id, scheduledTaskId);
   }
 
+    @Get(':id/students/progress')
+  async getClassStudentProgress(@Req() req, @Param('id') classId: string) {
+    const teacherId = req.user.id;
+
+    return this.classService.getClassStudentProgress(
+      teacherId,
+      classId,
+    );
+  }
+
   @Delete(':id/schedule/:classTaskId')
   @Roles(['teacher'])
   unscheduleTask(

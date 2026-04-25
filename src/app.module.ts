@@ -11,11 +11,12 @@ import { UploadModule } from './upload/upload.module';
 import { ClassModule } from './class/class.module';
 import { AttemptModule } from './attempt/attempt.module';
 import { CriteriaModule } from './criteria/criteria.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
     isGlobal: true,
-  }), AuthModule, PrismaModule, MailModule, GuardModule, TaskModule, UploadModule, ClassModule, AttemptModule, CriteriaModule],
+  }), AuthModule, PrismaModule, MailModule, GuardModule, TaskModule, UploadModule, ClassModule, AttemptModule, CriteriaModule, AnalyticsModule],
   controllers: [AppController],
   providers: [AppService],
 })
