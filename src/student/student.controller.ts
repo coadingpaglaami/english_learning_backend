@@ -1,8 +1,9 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { StudentService } from './student.service';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from 'src/guards/role.guard';
 import { Roles } from 'src/decorator/role.decorator';
+import { ScheduledTaskQueryDto } from './dto/student..dto';
 
 @Controller('student')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -30,14 +31,9 @@ export class StudentController {
     return this.studentService.getScoreTrend(req.user.sub);
   }
 
-  @Get('badges')
-  async getBadges(@Req() req) {
-    return this.studentService.getBadges(req.user.sub);
-  }
-
   @Get('scheduled-tasks')
-  async getScheduledTasks(@Req() req) {
-    return this.studentService.getScheduledTasks(req.user.sub);
+  async getScheduledTasks(@Req() req,@Query() query: ScheduledTaskQueryDto) {
+    return this.studentService.getScheduledTasks(req.user.sub, query);
   }
   @Get('skill-distribution')
   async getSkillDistribution(@Req() req) {

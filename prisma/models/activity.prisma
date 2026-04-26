@@ -26,10 +26,12 @@ model StudentActivity {
 }
 
 enum BadgeConditionType {
-  COMPLETE_TASKS
+  COMPLETE_TASKS_WITHIN_DAYS
   SCORE_PERCENTAGE
+  CONSECUTIVE_SCORE_PERCENTAGE
+  SCORE_PERCENTAGE_IN_TASKS_WITHIN_DAYS
+  XP_WITHIN_TIME
   STREAK_DAYS
-  TOTAL_XP
   ATTEMPT_COUNT
 }
 
@@ -38,15 +40,19 @@ model Badge {
 
   name        String
   description String
+  iconName    String
 
-  iconUrl String
+  conditionType   BadgeConditionType
+  conditionConfig Json
 
-  conditionType BadgeConditionType
+  isActive Boolean @default(true)
 
-  conditionValue Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  createdAt     DateTime       @default(now())
   studentBadges StudentBadge[]
+
+  @@unique([name])
 }
 
 model StudentBadge {
@@ -63,6 +69,9 @@ model StudentBadge {
   earnedAt DateTime?
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([studentId, badgeId])
+  @@index([studentId])
+  @@index([badgeId])
 }

@@ -9,10 +9,11 @@ import { SubmitAnswerDto } from './dto/attempt.dto';
 import { judgeAnswer } from './judge/judge.engine';
 import { resultBuilders } from './result-builder/result.engine';
 import { sanitizeQuestion } from './sanitize/sanitize-question';
+import { BadgeService } from 'src/badge/badge.service';
 
 @Injectable()
 export class AttemptService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService,private readonly studentBadgeService: BadgeService) {}
 
   private calculateFinalResult(attempt: any) {
     const { task, answers, score } = attempt;
@@ -279,7 +280,7 @@ export class AttemptService {
     const isLastQuestion =
       attempt.currentQuestionIndex === attempt.task.questions.length - 1;
 
-    return this.prisma.$transaction(async (tx) => {
+    const result=await  this.prisma.$transaction(async (tx) => {
       // Create the answer record
       const newAnswer = await tx.studentAnswer.create({
         data: {
@@ -454,5 +455,16 @@ export class AttemptService {
 
       return { isCorrect, isLastQuestion, status: updatedAttempt.status };
     });
+    if (result.isLastQuestion) {
+  const earnedBadges =
+    await this.studentBadgeService.checkAndAwardBadges(studentId);
+
+  return {
+    ...result,
+    earnedBadges,
+  };
+}
+
+return result;
   }
 }

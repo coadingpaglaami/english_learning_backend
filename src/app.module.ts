@@ -13,11 +13,12 @@ import { AttemptModule } from './attempt/attempt.module';
 import { CriteriaModule } from './criteria/criteria.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { StudentModule } from './student/student.module';
+import { BadgeModule } from './badge/badge.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
     isGlobal: true,
-  }), AuthModule, PrismaModule, MailModule, GuardModule, TaskModule, UploadModule, ClassModule, AttemptModule, CriteriaModule, AnalyticsModule, StudentModule],
+  }), AuthModule, PrismaModule, MailModule, GuardModule, TaskModule, UploadModule, ClassModule, AttemptModule, CriteriaModule, AnalyticsModule, StudentModule, BadgeModule],
   controllers: [AppController],
   providers: [AppService],
 })

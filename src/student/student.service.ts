@@ -1,5 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client/scripts/default-index.js';
 import { PrismaService } from 'src/database/prisma.service';
+import { TaskType } from 'src/task/dto/task.dto';
+import { ScheduledTaskQueryDto } from './dto/student..dto';
 
 @Injectable()
 export class StudentService {
@@ -374,62 +377,185 @@ export class StudentService {
       Vocabulary: avg(values.Vocabulary),
     }));
   }
-  async getBadges(studentId: string) {
-    const badges = await this.prisma.badge.findMany({
-      include: {
-        studentBadges: {
-          where: { studentId },
-        },
-      },
-    });
 
-    return badges.map((badge) => {
-      const studentBadge = badge.studentBadges[0];
+ async getScheduledTasks(studentId: string, query: ScheduledTaskQueryDto) {
+  const page = query.page ?? 1;
+  const limit = query.limit ?? 10;
+  const skip = (page - 1) * limit ;
 
-      return {
-        id: badge.id,
-        name: badge.name,
-        description: badge.description,
-        iconUrl: badge.iconUrl,
-        progress: studentBadge?.progress ?? 0,
-        earned: !!studentBadge?.earnedAt,
-        earnedAt: studentBadge?.earnedAt ?? null,
-      };
-    });
-  }
+  const { taskType, entryType } = query;
 
-  async getScheduledTasks(studentId: string) {
-    const classes = await this.prisma.class.findMany({
-      where: {
-        students: {
-          some: {
-            id: studentId,
-          },
-        },
-      },
-      include: {
-        classTasks: {
-          include: {
-            task: true,
-            scheduledTask: true,
-          },
-        },
-      },
-    });
-
-    return classes.flatMap((cls) =>
-      cls.classTasks
-        .filter((ct) => ct.scheduledTask)
-        .map((ct) => ({
-          className: cls.name,
-          taskTitle: ct.task.title,
-          taskType: ct.task.type,
-          scheduledTaskId: ct.scheduledTask?.id,
-          scheduledAt: ct.scheduledTask?.scheduledAt,
-          dueAt: ct.scheduledTask?.dueAt,
-        })),
+  if (entryType && taskType === TaskType.VOCABULARY) {
+    throw new BadRequestException(
+      'entryType filter is only available for GRAMMAR and READING tasks',
     );
   }
+
+  const taskWhere = {
+    ...(taskType && {
+      type: taskType,
+    }),
+
+    ...(entryType &&
+      taskType === TaskType.GRAMMAR && {
+        grammarContent: {
+          entryType: {
+            has: entryType,
+          },
+        },
+      }),
+
+    ...(entryType &&
+      taskType === TaskType.READING && {
+        readingContent: {
+          entryType: {
+            has: entryType,
+          },
+        },
+      }),
+
+    ...(entryType &&
+      !taskType && {
+        OR: [
+          {
+            type: TaskType.GRAMMAR,
+            grammarContent: {
+              entryType: {
+                has: entryType,
+              },
+            },
+          },
+          {
+            type: TaskType.READING,
+            readingContent: {
+              entryType: {
+                has: entryType,
+              },
+            },
+          },
+        ],
+      }),
+  };
+
+  const where = {
+    scheduledTask: {
+      isNot: null,
+    },
+    class: {
+      students: {
+        some: {
+          id: studentId,
+        },
+      },
+    },
+    task: taskWhere,
+  };
+
+  const [total, classTasks] = await this.prisma.$transaction([
+    this.prisma.classTask.count({ where }),
+
+    this.prisma.classTask.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: {
+        scheduledTask: {
+          scheduledAt: 'desc',
+        },
+      },
+      include: {
+        class: {
+          select: {
+            id: true,
+            name: true,
+            subject: true,
+            color: true,
+          },
+        },
+      scheduledTask: {
+  include: {
+    attempts: {
+      where: {
+        studentId,
+      },
+      select: {
+        status: true,
+      },
+      take: 1,
+    },
+  },
+},
+task: {
+  include: {
+    grammarContent: true,
+    readingContent: true,
+    vocabularyItems: true,
+    questions: {
+      select: {
+        type: true,
+      },
+    },
+    _count: {
+      select: {
+        questions: true,
+      },
+    },
+    attempts: {
+      where: {
+        studentId,
+      },
+      select: {
+        status: true,
+      },
+      take: 1,
+    },
+  },
+},
+      },
+    }),
+  ]);
+
+  return {
+data: classTasks.map((ct) => ({
+  classId: ct.class.id,
+  className: ct.class.name,
+  classSubject: ct.class.subject,
+  entryType: ct.task.type === TaskType.GRAMMAR
+    ? ct.task.grammarContent?.entryType
+    : ct.task.type === TaskType.READING
+      ? ct.task.readingContent?.entryType
+      : null,
+
+  classTaskId: ct.id,
+  scheduledTaskId: ct.scheduledTask?.id,
+  attemptStatus: ct.scheduledTask?. attempts[0]?.status ?? null,
+
+  taskId: ct.task.id,
+  taskTitle: ct.task.title,
+  taskType: ct.task.type,
+  taskStatus: ct.task.status,
+
+  xpPerQuestion: ct.task.xpPerQuestion,
+  totalQuestions: ct.task._count.questions,
+  totalXp: ct.task._count.questions * ct.task.xpPerQuestion,
+
+  questionTypes: [...new Set(ct.task.questions.map((q) => q.type))],
+
+  scheduledAt: ct.scheduledTask?.scheduledAt,
+  dueAt: ct.scheduledTask?.dueAt,
+  isActive: ct.scheduledTask?.isActive,
+})),
+
+    meta: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+      hasNextPage: page * limit < total,
+      hasPreviousPage: page > 1,
+    },
+  };
+}
 
   async getSkillDistribution(studentId: string) {
     const attempts = await this.prisma.attempt.findMany({
