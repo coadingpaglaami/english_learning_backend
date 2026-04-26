@@ -480,7 +480,7 @@ export class TaskService {
       this.prisma.task.findMany({
         where,
         include: {
-          createdBy: { select: { email: true } },
+          createdBy: { select: { email: true, firstName: true, lastName: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,

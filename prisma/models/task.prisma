@@ -1,7 +1,7 @@
 model Task {
-  id            String @id @default(nanoid())
-  title         String
-  xpPerQuestion Int    @default(5) // NEW
+  id              String       @id @default(nanoid())
+  title           String
+  xpPerQuestion   Int          @default(5) // NEW
   type            TaskType
   status          TaskStatus   @default(DRAFT)
   isPublic        Boolean      @default(false)
