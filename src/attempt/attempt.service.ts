@@ -321,6 +321,136 @@ export class AttemptService {
         where: { id: attemptId },
         data: finalUpdateData,
       });
+      if (isLastQuestion) {
+        const totalQuestions = attempt.task.questions.length;
+
+        const percentage =
+          totalQuestions > 0
+            ? Math.round((newScore / totalQuestions) * 100)
+            : 0;
+
+        const xpPerQuestion = attempt.task.xpPerQuestion ?? 5;
+        const xpEarned = newScore * xpPerQuestion;
+
+        // Update attempt analytics
+        await tx.attempt.update({
+          where: { id: attemptId },
+          data: {
+            xpEarned,
+            percentage,
+          },
+        });
+
+        // Update Student XP
+        await tx.studentProfile.update({
+          where: { userId: studentId },
+          data: {
+            totalXp: { increment: xpEarned },
+          },
+        });
+
+        // Update Skill Progress
+        const skill = attempt.task.type;
+
+        const progress = await tx.studentSkillProgress.findUnique({
+          where: {
+            studentId_skill: {
+              studentId,
+              skill,
+            },
+          },
+        });
+
+        if (!progress) {
+          await tx.studentSkillProgress.create({
+            data: {
+              studentId,
+              skill,
+              totalTasks: 1,
+              completedTasks: 1,
+              totalScore: percentage,
+              avgScore: percentage,
+            },
+          });
+        } else {
+          const newTotalTasks = progress.totalTasks + 1;
+          const newCompleted = progress.completedTasks + 1;
+          const newTotalScore = progress.totalScore + percentage;
+          const newAvg = newTotalScore / newCompleted;
+
+          await tx.studentSkillProgress.update({
+            where: {
+              studentId_skill: {
+                studentId,
+                skill,
+              },
+            },
+            data: {
+              totalTasks: newTotalTasks,
+              completedTasks: newCompleted,
+              totalScore: newTotalScore,
+              avgScore: newAvg,
+            },
+          });
+        }
+
+        // Create Activity
+        await tx.studentActivity.create({
+          data: {
+            studentId,
+            type: 'TASK_COMPLETED',
+            scheduledTaskId: attempt.scheduledTaskId,
+            attemptId: attemptId,
+            xpEarned,
+            message: `Completed ${attempt.task.title}`,
+          },
+        });
+
+        // Update Monthly Stats
+        const now = new Date();
+        const month = now.getMonth() + 1;
+        const year = now.getFullYear();
+
+        const stats = await tx.studentMonthlyStats.findUnique({
+          where: {
+            studentId_month_year: {
+              studentId,
+              month,
+              year,
+            },
+          },
+        });
+
+        if (!stats) {
+          await tx.studentMonthlyStats.create({
+            data: {
+              studentId,
+              month,
+              year,
+              completedTasks: 1,
+              xpEarned,
+              overallScoreAvg: percentage,
+            },
+          });
+        } else {
+          const newTasks = stats.completedTasks + 1;
+          const newXp = stats.xpEarned + xpEarned;
+
+          await tx.studentMonthlyStats.update({
+            where: {
+              studentId_month_year: {
+                studentId,
+                month,
+                year,
+              },
+            },
+            data: {
+              completedTasks: newTasks,
+              xpEarned: newXp,
+            },
+          });
+        }
+      }
 
       return { isCorrect, isLastQuestion, status: updatedAttempt.status };
     });

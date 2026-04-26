@@ -35,7 +35,8 @@ model ClassScheduledTask {
   dueAt       DateTime?
   isActive    Boolean   @default(true)
 
-  classTaskId String    @unique
-  classTask   ClassTask @relation(fields: [classTaskId], references: [id], onDelete: Cascade)
-  attempts    Attempt[]
+  classTaskId       String            @unique
+  classTask         ClassTask         @relation(fields: [classTaskId], references: [id], onDelete: Cascade)
+  attempts          Attempt[]
+  studentActivities StudentActivity[]
 }

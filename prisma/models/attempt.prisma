@@ -15,6 +15,8 @@ model Attempt {
   isPassed         Boolean  @default(false)
   achievedCriteria String[] // Store codes like ["Ra", "Rb"] on completion
   missingCriteria  String[] // Store codes like ["Rc"] if they failed
+  xpEarned         Int      @default(0)
+  percentage Float?
 
   scheduledTaskId String
   scheduledTask   ClassScheduledTask @relation(fields: [scheduledTaskId], references: [id])
@@ -25,8 +27,9 @@ model Attempt {
 
   answers StudentAnswer[]
 
-  startedAt   DateTime  @default(now())
-  completedAt DateTime?
+  startedAt         DateTime          @default(now())
+  completedAt       DateTime?
+  studentActivities StudentActivity[]
 
   @@unique([studentId, scheduledTaskId]) // One attempt per student per scheduled task
 }

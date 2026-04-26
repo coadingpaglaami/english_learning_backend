@@ -12,11 +12,12 @@ import { ClassModule } from './class/class.module';
 import { AttemptModule } from './attempt/attempt.module';
 import { CriteriaModule } from './criteria/criteria.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { StudentModule } from './student/student.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
     isGlobal: true,
-  }), AuthModule, PrismaModule, MailModule, GuardModule, TaskModule, UploadModule, ClassModule, AttemptModule, CriteriaModule, AnalyticsModule],
+  }), AuthModule, PrismaModule, MailModule, GuardModule, TaskModule, UploadModule, ClassModule, AttemptModule, CriteriaModule, AnalyticsModule, StudentModule],
   controllers: [AppController],
   providers: [AppService],
 })
