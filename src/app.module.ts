@@ -15,11 +15,12 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { StudentModule } from './student/student.module';
 import { BadgeModule } from './badge/badge.module';
 import { AdminModule } from './admin/admin.module';
+import { PaymentModule } from './payment/payment.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
     isGlobal: true,
-  }), AuthModule, PrismaModule, MailModule, GuardModule, TaskModule, UploadModule, ClassModule, AttemptModule, CriteriaModule, AnalyticsModule, StudentModule, BadgeModule, AdminModule],
+  }), AuthModule, PrismaModule, MailModule, GuardModule, TaskModule, UploadModule, ClassModule, AttemptModule, CriteriaModule, AnalyticsModule, StudentModule, BadgeModule, AdminModule, PaymentModule],
   controllers: [AppController],
   providers: [AppService],
 })

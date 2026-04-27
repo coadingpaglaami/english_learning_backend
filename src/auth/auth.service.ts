@@ -31,22 +31,32 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  async signup(dto: any) {
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
+async signup(dto: any) {
+  const existingUser = await this.prisma.user.findUnique({
+    where: { email: dto.email },
+  });
 
-    if (existingUser) {
-      throw new BadRequestException('User already exists');
-    }
+  if (existingUser) {
+    throw new BadRequestException('User already exists');
+  }
 
-    if (dto.role === 'admin') {
-      throw new BadRequestException('Cannot sign up as admin');
-    }
+  if (dto.role === 'admin') {
+    throw new BadRequestException('Cannot sign up as admin');
+  }
 
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
+  const hashedPassword = await bcrypt.hash(dto.password, 10);
 
-    const user = await this.prisma.user.create({
+  const freePlan = dto.role === 'teacher'
+    ? await this.prisma.subscriptionPlan.findFirst({
+        where: {
+          type: 'FREE',
+          isActive: true,
+        },
+      })
+    : null;
+
+  const result = await this.prisma.$transaction(async (tx) => {
+    const user = await tx.user.create({
       data: {
         firstName: dto.firstName,
         lastName: dto.lastName,
@@ -58,7 +68,7 @@ export class AuthService {
     });
 
     if (dto.role === 'student') {
-      await this.prisma.studentProfile.create({
+      await tx.studentProfile.create({
         data: {
           userId: user.id,
           username: dto.username,
@@ -67,7 +77,7 @@ export class AuthService {
     }
 
     if (dto.role === 'teacher') {
-      await this.prisma.teacherProfile.create({
+      await tx.teacherProfile.create({
         data: {
           userId: user.id,
           subject: dto.subject,
@@ -75,15 +85,34 @@ export class AuthService {
           bio: dto.bio,
         },
       });
+
+      if (!freePlan) {
+        throw new BadRequestException('Free plan not configured');
+      }
+
+      await tx.userSubscription.create({
+        data: {
+          userId: user.id,
+          planId: freePlan.id,
+          billingStatus: 'ACTIVE',
+          billingCycle: null,
+          boughtPrice: 0,
+          discountAmount: 0,
+          finalPrice: 0,
+        },
+      });
     }
 
-    const { password, ...updatedUser } = user;
+    return user;
+  });
 
-    return {
-      updatedUser,
-      message: 'Signup successful',
-    };
-  }
+  const { password, ...updatedUser } = result;
+
+  return {
+    updatedUser,
+    message: 'Signup successful',
+  };
+}
 
   async signin(dto: any) {
     const user = await this.prisma.user.findUnique({
@@ -113,36 +142,63 @@ export class AuthService {
     };
   }
 
-  async googleLogin(req: any) {
-    const googleUser = req.user;
+async googleLogin(req: any) {
+  const googleUser = req.user;
 
-    let user = await this.prisma.user.findUnique({
-      where: { email: googleUser.email },
-    });
+  let user = await this.prisma.user.findUnique({
+    where: { email: googleUser.email },
+  });
 
-    if (!user) {
-      user = await this.prisma.user.create({
+  if (!user) {
+    user = await this.prisma.$transaction(async (tx) => {
+      const createdUser = await tx.user.create({
         data: {
           email: googleUser.email,
           firstName: googleUser.firstName,
           lastName: googleUser.lastName,
           role: googleUser.roleIntent || 'student',
-          isOnboarded: false, // Force them through onboarding
+          isOnboarded: false,
         },
       });
-    }
 
-    // Include isOnboarded in the token payload
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      isOnboarded: user.isOnboarded, // <--- Add this
-    };
+      if ((googleUser.roleIntent || 'student') === 'teacher') {
+        const freePlan = await tx.subscriptionPlan.findFirst({
+          where: {
+            type: 'FREE',
+            isActive: true,
+          },
+        });
 
-    const tokens = await this.generateTokens(payload);
-    return { user, ...tokens };
+        if (freePlan) {
+          await tx.userSubscription.create({
+            data: {
+              userId: createdUser.id,
+              planId: freePlan.id,
+              billingStatus: 'ACTIVE',
+              billingCycle: null,
+              boughtPrice: 0,
+              discountAmount: 0,
+              finalPrice: 0,
+            },
+          });
+        }
+      }
+
+      return createdUser;
+    });
   }
+
+  const payload = {
+    sub: user.id,
+    email: user.email,
+    role: user.role,
+    isOnboarded: user.isOnboarded,
+  };
+
+  const tokens = await this.generateTokens(payload);
+
+  return { user, ...tokens };
+}
 
   async forgetPassword(dto: any) {
     const user = await this.prisma.user.findUnique({
