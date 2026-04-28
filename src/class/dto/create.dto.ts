@@ -22,9 +22,6 @@ export class CreateClassDto {
   @IsString()
   color!: string;
 
-  @IsNumber()
-  maxStudents!: number;
-
   // Task IDs to add to class on creation (optional)
   @IsOptional()
   @IsArray()

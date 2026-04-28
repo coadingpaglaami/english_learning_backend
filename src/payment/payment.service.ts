@@ -185,101 +185,6 @@ async getMySubscription(userId: string) {
   return subscription;
 }
 
-// async handleStripeWebhook(rawBody: Buffer, signature: string) {
-//   let event: any;
-//   console.log('WEBHOOK SECRET START:', process.env.WEBHOOK_SECRET?.slice(0, 12));
-
-
-//   try {
-//     event = this.stripe.webhooks.constructEvent(
-//       rawBody,
-//       signature,
-//       process.env.WEBHOOK_SECRET as string,
-//     );
-//   } catch (error) {
-//      console.log('WEBHOOK ERROR:', error);
-//   console.log('HAS RAW BODY:', !!rawBody);
-//   console.log('HAS SIGNATURE:', !!signature);
-//   console.log('HAS SECRET:', !!process.env.WEBHOOK_SECRET);
-//     throw new BadRequestException('Invalid Stripe webhook signature');
-//   }
-
-//   if (event.type === 'checkout.session.completed') {
-//     const session: any = event.data.object;
-
-//     const userId = session.metadata?.userId;
-//     const planId = session.metadata?.planId;
-//     const billingCycle = session.metadata?.billingCycle;
-
-//     if (!userId || !planId || !billingCycle) {
-//       return { received: true };
-//     }
-
-//     const plan = await this.prisma.subscriptionPlan.findUnique({
-//       where: { id: planId },
-//     });
-
-//     if (!plan) {
-//       return { received: true };
-//     }
-
-//     const price =
-//       billingCycle === 'ANNUAL' ? plan.annualPrice : plan.monthlyPrice;
-
-//     const stripeSubscriptionId =
-//       typeof session.subscription === 'string'
-//         ? session.subscription
-//         : session.subscription?.id;
-
-//     let currentPeriodStart: Date | null = null;
-//     let currentPeriodEnd: Date | null = null;
-
-//    if (stripeSubscriptionId) {
-//   const stripeSubscription: any =
-//     await this.stripe.subscriptions.retrieve(stripeSubscriptionId);
-
-//   const startDate = stripeSubscription.start_date
-//     ? new Date(stripeSubscription.start_date * 1000)
-//     : null;
-
-//   let endDate: Date | null = null;
-
-//   if (startDate) {
-//     endDate = new Date(startDate);
-
-//     if (billingCycle === 'ANNUAL') {
-//       endDate.setFullYear(endDate.getFullYear() + 1);
-//     } else {
-//       endDate.setMonth(endDate.getMonth() + 1);
-//     }
-//   }
-
-//   currentPeriodStart = startDate;
-//   currentPeriodEnd = endDate;
-// }
-
-//     await this.prisma.userSubscription.update({
-//       where: { userId },
-//       data: {
-//         planId,
-//         billingCycle,
-//         billingStatus: 'ACTIVE',
-//         stripeSubscriptionId,
-//         stripePriceId:
-//           billingCycle === 'ANNUAL'
-//             ? plan.stripeAnnualPriceId
-//             : plan.stripeMonthlyPriceId,
-//         boughtPrice: price,
-//         discountAmount: 0,
-//         finalPrice: price,
-//         currentPeriodStart,
-//         currentPeriodEnd,
-//       },
-//     });
-//   }
-
-//   return { received: true };
-// }
 
 async handleStripeWebhook(rawBody: Buffer, signature: string) {
   let event;
@@ -316,11 +221,37 @@ async handleStripeWebhook(rawBody: Buffer, signature: string) {
       await this.handleInvoicePaymentFailed(event.data.object);
       break;
 
+    case 'price.updated':
+      await this.handlePriceUpdated(event.data.object);
+      break;
+
     default:
       console.log(`Unhandled Stripe event: ${event.type}`);
   }
 
   return { received: true };
+}
+
+private async handlePriceUpdated(price: any) {
+  const plan = await this.prisma.subscriptionPlan.findFirst({
+    where: {
+      OR: [
+        { stripeMonthlyPriceId: price.id },
+        { stripeAnnualPriceId: price.id },
+      ],
+    },
+  });
+
+  if (!plan || !price.unit_amount) return;
+
+  const isAnnual = plan.stripeAnnualPriceId === price.id;
+
+  await this.prisma.subscriptionPlan.update({
+    where: { id: plan.id },
+    data: {
+      [isAnnual ? 'annualPrice' : 'monthlyPrice']: price.unit_amount,
+    },
+  });
 }
 
 private async handleCheckoutSessionCompleted(session) {
@@ -930,115 +861,138 @@ async getAdminSubscribers(query) {
   };
 }
 
-async adminChangeUserPlan(
-  userId,
-  adminId,
-  body,
-) {
-  const { planType, billingCycle } = body;
+async adminChangeUserPlan(userId: string, adminId: string, body: any) {
+    const { planType, billingCycle } = body;
 
-  const plan =
-    await this.prisma.subscriptionPlan.findFirst({
-      where: {
-        type: planType,
-        isActive: true,
-      },
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
     });
 
-  if (!plan) {
-    throw new NotFoundException(
-      'Plan not found',
-    );
-  }
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
 
-  const subscription =
-    await this.prisma.userSubscription.findUnique({
-      where: {
-        userId,
-      },
+    const plan = await this.prisma.subscriptionPlan.findFirst({
+      where: { type: planType, isActive: true },
     });
 
-  if (!subscription) {
-    throw new NotFoundException(
-      'Subscription not found',
-    );
-  }
+    if (!plan) {
+      throw new NotFoundException('Plan not found');
+    }
 
-  if (
-    planType !== 'FREE' &&
-    subscription.stripeSubscriptionId
-  ) {
-    const stripePriceId =
-      billingCycle === 'ANNUAL'
-        ? plan.stripeAnnualPriceId
-        : plan.stripeMonthlyPriceId;
+    let subscription = await this.prisma.userSubscription.findUnique({
+      where: { userId },
+    });
 
-    const stripeSubscription =
-      await this.stripe.subscriptions.retrieve(
-        subscription.stripeSubscriptionId,
-      );
+    if (!subscription) {
+      throw new NotFoundException('Subscription not found');
+    }
 
-    const itemId =
-      stripeSubscription.items.data[0].id;
+    if (planType === 'FREE') {
+      if (subscription.stripeSubscriptionId) {
+        try {
+          await this.stripe.subscriptions.cancel(subscription.stripeSubscriptionId);
+        } catch (error) {
+          console.error('Error canceling Stripe subscription:', error);
+        }
+      }
 
-    await this.stripe.subscriptions.update(
-      subscription.stripeSubscriptionId,
-      {
-        items: [
-          {
-            id: itemId,
-            price: stripePriceId as string,
-          },
-        ],
-        proration_behavior:
-          'create_prorations',
-      },
-    );
-  }
+      return this.prisma.userSubscription.update({
+        where: { userId },
+        data: {
+          planId: plan.id,
+          billingCycle: null,
+          billingStatus: 'ACTIVE',
+          boughtPrice: 0,
+          discountAmount: 0,
+          finalPrice: 0,
+          stripePriceId: null,
+          stripeSubscriptionId: null,
+          cancelAtPeriodEnd: false,
+          changedByAdminId: adminId,
+          changedAt: new Date(),
+        },
+      });
+    }
 
-  if (
-    planType === 'FREE' &&
-    subscription.stripeSubscriptionId
-  ) {
-    await this.stripe.subscriptions.cancel(
-      subscription.stripeSubscriptionId,
-    );
-  }
+    let stripeCustomerId = subscription.stripeCustomerId;
+    if (!stripeCustomerId) {
+      const stripeCustomer = await this.stripe.customers.create({
+        email: user.email,
+        name: `${user.firstName} ${user.lastName}`.trim(),
+      });
+      stripeCustomerId = stripeCustomer.id;
+      
+      subscription = await this.prisma.userSubscription.update({
+        where: { userId },
+        data: { stripeCustomerId },
+      });
+    }
 
-  const price =
-    planType === 'FREE'
-      ? 0
-      : billingCycle === 'ANNUAL'
-      ? plan.annualPrice
-      : plan.monthlyPrice;
+    const stripePriceId = billingCycle === 'ANNUAL' ? plan.stripeAnnualPriceId : plan.stripeMonthlyPriceId;
 
-  return this.prisma.userSubscription.update({
-    where: {
-      userId,
-    },
-    data: {
-      planId: plan.id,
-      billingCycle:
-        planType === 'FREE'
-          ? null
-          : billingCycle,
-      billingStatus: 'ACTIVE',
-      boughtPrice: price,
-      discountAmount: 0,
-      finalPrice: price,
-      stripePriceId:
-        planType === 'FREE'
-          ? null
-          : billingCycle === 'ANNUAL'
-          ? plan.stripeAnnualPriceId
-          : plan.stripeMonthlyPriceId,
-      cancelAtPeriodEnd: false,
-      changedByAdminId: adminId,
-      changedAt: new Date(),
-    },
-  });
+    if (subscription.stripeSubscriptionId) {
+      try {
+        await this.stripe.subscriptions.cancel(subscription.stripeSubscriptionId);
+      } catch (error) {
+        console.error('Error canceling old Stripe subscription:', error);
+      }
+    }
+
+    const couponId = process.env.ADMIN_FREE_COUPON || 'ADMIN_FREE';
+    let stripeSub;
+    
+    try {
+      stripeSub = await this.stripe.subscriptions.create({
+        customer: stripeCustomerId,
+        items: [{ price: stripePriceId as string }],
+        discounts: [{ coupon: couponId }],
+        cancel_at_period_end: true,
+        metadata: {
+          userId,
+          planId: plan.id,
+          billingCycle,
+        }
+      });
+    } catch (error) {
+      const err = error as unknown as {
+        message: string;
+      };
+      throw new Error(`Failed to create Stripe subscription: ${err.message}`);
+    }
+
+    const price = billingCycle === 'ANNUAL' ? plan.annualPrice : plan.monthlyPrice;
+
+    try {
+      const updatedSub = await this.prisma.userSubscription.update({
+        where: { userId },
+        data: {
+          planId: plan.id,
+          billingCycle,
+          billingStatus: 'ACTIVE',
+          boughtPrice: price,
+          discountAmount: price,
+          finalPrice: 0,
+          stripePriceId,
+          stripeSubscriptionId: stripeSub.id,
+          cancelAtPeriodEnd: true,
+          changedByAdminId: adminId,
+          changedAt: new Date(),
+          currentPeriodStart: stripeSub.current_period_start ? new Date(stripeSub.current_period_start * 1000) : new Date(),
+          currentPeriodEnd: stripeSub.current_period_end ? new Date(stripeSub.current_period_end * 1000) : new Date(Date.now() + (billingCycle === 'ANNUAL' ? 31536000000 : 2592000000)),
+        },
+      });
+
+      console.log('✅ Successfully updated UserSubscription in database:', updatedSub.id);
+      return updatedSub;
+    } catch (dbError) {
+      const error = dbError as unknown as {
+        message: string;
+      };
+      console.error('❌ Failed to update UserSubscription in database:', dbError);
+      throw new Error(`Database update failed: ${error.message}`);
+    }
 }
-
 async adminCancelUserSubscription(
   userId,
   adminId,
