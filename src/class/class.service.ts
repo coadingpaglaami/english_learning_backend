@@ -64,6 +64,8 @@ export class ClassService {
       include: { plan: true },
     });
 
+    console.log(subscription)
+
     if (!subscription || subscription.billingStatus !== 'ACTIVE') {
       throw new BadRequestException('No active subscription found');
     }

@@ -13,7 +13,10 @@ import { BadgeService } from 'src/badge/badge.service';
 
 @Injectable()
 export class AttemptService {
-  constructor(private readonly prisma: PrismaService,private readonly studentBadgeService: BadgeService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly studentBadgeService: BadgeService,
+  ) {}
 
   private calculateFinalResult(attempt: any) {
     const { task, answers, score } = attempt;
@@ -161,7 +164,6 @@ export class AttemptService {
   }
 
   async startOrResumeAttempt(studentId: string, scheduledTaskId: string) {
-    // 1. Verify schedule exists and is active
     const schedule = await this.prisma.classScheduledTask.findUnique({
       where: { id: scheduledTaskId },
       include: { classTask: true },
@@ -171,25 +173,24 @@ export class AttemptService {
       throw new BadRequestException('This task is not currently active.');
     }
 
-    // 2. Find existing or create new
-    let attempt = await this.prisma.attempt.findUnique({
-      where: { studentId_scheduledTaskId: { studentId, scheduledTaskId } },
-    });
-
-    if (!attempt) {
-      attempt = await this.prisma.attempt.create({
-        data: {
+    const attempt = await this.prisma.attempt.upsert({
+      where: {
+        studentId_scheduledTaskId: {
           studentId,
           scheduledTaskId,
-          taskId: schedule.classTask.taskId,
-          status: 'IN_PROGRESS',
         },
-      });
-    }
+      },
+      update: {}, // resume existing attempt
+      create: {
+        studentId,
+        scheduledTaskId,
+        taskId: schedule.classTask.taskId,
+        status: 'IN_PROGRESS',
+      },
+    });
 
     return attempt;
   }
-
   async getAttemptState(attemptId: string, studentId: string) {
     const attempt = await this.prisma.attempt.findUnique({
       where: { id: attemptId },
@@ -280,7 +281,7 @@ export class AttemptService {
     const isLastQuestion =
       attempt.currentQuestionIndex === attempt.task.questions.length - 1;
 
-    const result=await  this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // Create the answer record
       const newAnswer = await tx.studentAnswer.create({
         data: {
@@ -456,15 +457,15 @@ export class AttemptService {
       return { isCorrect, isLastQuestion, status: updatedAttempt.status };
     });
     if (result.isLastQuestion) {
-  const earnedBadges =
-    await this.studentBadgeService.checkAndAwardBadges(studentId);
+      const earnedBadges =
+        await this.studentBadgeService.checkAndAwardBadges(studentId);
 
-  return {
-    ...result,
-    earnedBadges,
-  };
-}
+      return {
+        ...result,
+        earnedBadges,
+      };
+    }
 
-return result;
+    return result;
   }
 }
