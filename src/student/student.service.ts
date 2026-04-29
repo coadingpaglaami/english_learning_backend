@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client/scripts/default-index.js';
 import { PrismaService } from 'src/database/prisma.service';
 import { TaskType } from 'src/task/dto/task.dto';
 import { ScheduledTaskQueryDto } from './dto/student..dto';
+import { calculateLevel } from 'common/utils/calculationxp';
 
 @Injectable()
 export class StudentService {
@@ -146,12 +147,13 @@ export class StudentService {
     const xpChange = calcChange(xpCurrentValue, xpPreviousValue);
 
     // Level calculation
-    const xpPerLevel = 200;
-    const totalXp = profile?.totalXp ?? 0;
+    // const xpPerLevel = 200;
+    // const totalXp = profile?.totalXp ?? 0;
 
-    const level = Math.floor(totalXp / xpPerLevel) + 1;
-    const xpIntoLevel = totalXp % xpPerLevel;
-    const xpNeededForNextLevel = xpPerLevel - xpIntoLevel;
+    // const level = Math.floor(totalXp / xpPerLevel) + 1;
+    // const xpIntoLevel = totalXp % xpPerLevel;
+    // const xpNeededForNextLevel = xpPerLevel - xpIntoLevel;
+    const levelData = calculateLevel(profile?.totalXp ?? 0);
 
     // Recent activity (unchanged)
     const activities = await this.prisma.studentActivity.findMany({
@@ -190,10 +192,10 @@ export class StudentService {
       },
 
       level: {
-        level,
-        totalXp,
-        xpIntoLevel,
-        xpNeededForNextLevel,
+        level: levelData.level,
+        totalXp: profile?.totalXp ?? 0,
+        xpIntoLevel: levelData.xpIntoLevel,
+        xpNeededForNextLevel: levelData.xpNeededForNextLevel,
       },
 
       recentActivity: activities.map((a) => ({

@@ -185,4 +185,10 @@ export class AuthController {
 
     return { success: true, userResponse };
   }
+
+  @Get('my-profile')
+  @UseGuards(AuthGuard('jwt'))
+  async myProfile(@Req() req: any) {
+    return this.authService.myProfile(req.user.sub);
+  }
 }

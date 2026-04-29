@@ -8,6 +8,7 @@ import { PrismaService } from 'src/database/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { MailService } from 'src/mail/mail.service';
+import { calculateLevel } from 'common/utils/calculationxp';
 
 @Injectable()
 export class AuthService {
@@ -31,88 +32,89 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-async signup(dto: any) {
-  const existingUser = await this.prisma.user.findUnique({
-    where: { email: dto.email },
-  });
-
-  if (existingUser) {
-    throw new BadRequestException('User already exists');
-  }
-
-  if (dto.role === 'admin') {
-    throw new BadRequestException('Cannot sign up as admin');
-  }
-
-  const hashedPassword = await bcrypt.hash(dto.password, 10);
-
-  const freePlan = dto.role === 'teacher'
-    ? await this.prisma.subscriptionPlan.findFirst({
-        where: {
-          type: 'FREE',
-          isActive: true,
-        },
-      })
-    : null;
-
-  const result = await this.prisma.$transaction(async (tx) => {
-    const user = await tx.user.create({
-      data: {
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        email: dto.email,
-        password: hashedPassword,
-        role: dto.role,
-        isOnboarded: true,
-      },
+  async signup(dto: any) {
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: dto.email },
     });
 
-    if (dto.role === 'student') {
-      await tx.studentProfile.create({
-        data: {
-          userId: user.id,
-          username: dto.username,
-        },
-      });
+    if (existingUser) {
+      throw new BadRequestException('User already exists');
     }
 
-    if (dto.role === 'teacher') {
-      await tx.teacherProfile.create({
+    if (dto.role === 'admin') {
+      throw new BadRequestException('Cannot sign up as admin');
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+
+    const freePlan =
+      dto.role === 'teacher'
+        ? await this.prisma.subscriptionPlan.findFirst({
+            where: {
+              type: 'FREE',
+              isActive: true,
+            },
+          })
+        : null;
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
         data: {
-          userId: user.id,
-          subject: dto.subject,
-          institution: dto.institution,
-          bio: dto.bio,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          email: dto.email,
+          password: hashedPassword,
+          role: dto.role,
+          isOnboarded: true,
         },
       });
 
-      if (!freePlan) {
-        throw new BadRequestException('Free plan not configured');
+      if (dto.role === 'student') {
+        await tx.studentProfile.create({
+          data: {
+            userId: user.id,
+            username: dto.username,
+          },
+        });
       }
 
-      await tx.userSubscription.create({
-        data: {
-          userId: user.id,
-          planId: freePlan.id,
-          billingStatus: 'ACTIVE',
-          billingCycle: null,
-          boughtPrice: 0,
-          discountAmount: 0,
-          finalPrice: 0,
-        },
-      });
-    }
+      if (dto.role === 'teacher') {
+        await tx.teacherProfile.create({
+          data: {
+            userId: user.id,
+            subject: dto.subject,
+            institution: dto.institution,
+            bio: dto.bio,
+          },
+        });
 
-    return user;
-  });
+        if (!freePlan) {
+          throw new BadRequestException('Free plan not configured');
+        }
 
-  const { password, ...updatedUser } = result;
+        await tx.userSubscription.create({
+          data: {
+            userId: user.id,
+            planId: freePlan.id,
+            billingStatus: 'ACTIVE',
+            billingCycle: null,
+            boughtPrice: 0,
+            discountAmount: 0,
+            finalPrice: 0,
+          },
+        });
+      }
 
-  return {
-    updatedUser,
-    message: 'Signup successful',
-  };
-}
+      return user;
+    });
+
+    const { password, ...updatedUser } = result;
+
+    return {
+      updatedUser,
+      message: 'Signup successful',
+    };
+  }
 
   async signin(dto: any) {
     const user = await this.prisma.user.findUnique({
@@ -142,63 +144,63 @@ async signup(dto: any) {
     };
   }
 
-async googleLogin(req: any) {
-  const googleUser = req.user;
+  async googleLogin(req: any) {
+    const googleUser = req.user;
 
-  let user = await this.prisma.user.findUnique({
-    where: { email: googleUser.email },
-  });
+    let user = await this.prisma.user.findUnique({
+      where: { email: googleUser.email },
+    });
 
-  if (!user) {
-    user = await this.prisma.$transaction(async (tx) => {
-      const createdUser = await tx.user.create({
-        data: {
-          email: googleUser.email,
-          firstName: googleUser.firstName,
-          lastName: googleUser.lastName,
-          role: googleUser.roleIntent || 'student',
-          isOnboarded: false,
-        },
-      });
-
-      if ((googleUser.roleIntent || 'student') === 'teacher') {
-        const freePlan = await tx.subscriptionPlan.findFirst({
-          where: {
-            type: 'FREE',
-            isActive: true,
+    if (!user) {
+      user = await this.prisma.$transaction(async (tx) => {
+        const createdUser = await tx.user.create({
+          data: {
+            email: googleUser.email,
+            firstName: googleUser.firstName,
+            lastName: googleUser.lastName,
+            role: googleUser.roleIntent || 'student',
+            isOnboarded: false,
           },
         });
 
-        if (freePlan) {
-          await tx.userSubscription.create({
-            data: {
-              userId: createdUser.id,
-              planId: freePlan.id,
-              billingStatus: 'ACTIVE',
-              billingCycle: null,
-              boughtPrice: 0,
-              discountAmount: 0,
-              finalPrice: 0,
+        if ((googleUser.roleIntent || 'student') === 'teacher') {
+          const freePlan = await tx.subscriptionPlan.findFirst({
+            where: {
+              type: 'FREE',
+              isActive: true,
             },
           });
+
+          if (freePlan) {
+            await tx.userSubscription.create({
+              data: {
+                userId: createdUser.id,
+                planId: freePlan.id,
+                billingStatus: 'ACTIVE',
+                billingCycle: null,
+                boughtPrice: 0,
+                discountAmount: 0,
+                finalPrice: 0,
+              },
+            });
+          }
         }
-      }
 
-      return createdUser;
-    });
+        return createdUser;
+      });
+    }
+
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      isOnboarded: user.isOnboarded,
+    };
+
+    const tokens = await this.generateTokens(payload);
+
+    return { user, ...tokens };
   }
-
-  const payload = {
-    sub: user.id,
-    email: user.email,
-    role: user.role,
-    isOnboarded: user.isOnboarded,
-  };
-
-  const tokens = await this.generateTokens(payload);
-
-  return { user, ...tokens };
-}
 
   async forgetPassword(dto: any) {
     const user = await this.prisma.user.findUnique({
@@ -338,35 +340,90 @@ async googleLogin(req: any) {
     };
   }
 
-async findStudent(identifier: string) {
-  const value = identifier.trim();
+  async findStudent(identifier: string) {
+    const value = identifier.trim();
 
-  console.log("Searching for student with identifier:", value);
+    console.log('Searching for student with identifier:', value);
 
-  const student = await this.prisma.studentProfile.findFirst({
-    where: {
-      username: {
-        contains: value,
-        mode: "insensitive",
-      },
-    },
-    select: {
-      username: true,
-      user: {
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          role: true,
-          avatarUrl: true,
+    const student = await this.prisma.studentProfile.findFirst({
+      where: {
+        username: {
+          contains: value,
+          mode: 'insensitive',
         },
       },
+      select: {
+        username: true,
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            role: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+
+    console.log('Student result:', student);
+
+    return student;
+  }
+
+  async myProfile(userId: string) {
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      student: true,
+      teacher: true,
     },
   });
 
-  console.log("Student result:", student);
+  if (!user) {
+    throw new NotFoundException("User not found");
+  }
 
-  return student;
+  // STUDENT RESPONSE
+  if (user.role === "student" && user.student) {
+    const levelInfo = calculateLevel(user.student.totalXp);
+
+    return {
+      role: "student",
+      firstName: user.firstName,
+      lastName: user.lastName,
+      username: user.student.username,
+      totalXp: user.student.totalXp,
+
+      level: levelInfo.level,
+      xpIntoLevel: levelInfo.xpIntoLevel,
+      xpNeededForNextLevel: levelInfo.xpNeededForNextLevel,
+      progressPercentage: levelInfo.progressPercentage,
+    };
+  }
+
+  // TEACHER RESPONSE
+  if (user.role === "teacher" && user.teacher) {
+    return {
+      role: "teacher",
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      teacherProfile: {
+        subject: user.teacher.subject,
+        institution: user.teacher.institution,
+        bio: user.teacher.bio,
+      },
+    };
+  }
+
+  // ADMIN OR OTHER
+  return {
+    role: user.role,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+  };
 }
 }
