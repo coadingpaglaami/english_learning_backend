@@ -1,0 +1,40 @@
+name: Deploy Backend to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_SERVER_IP }}
+          username: ubuntu
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            set -e
+
+            echo "🚀 Starting deployment..."
+
+            cd /home/ubuntu/backend/english_learning_backend
+
+            echo "📥 Pulling latest code..."
+            git pull origin main
+
+            echo "📦 Installing dependencies..."
+            pnpm install
+
+            echo "🔨 Building project..."
+            pnpm run build
+
+            echo "♻️ Restarting PM2..."
+            pm2 restart api.esolmaster.co.uk --update-env
+
+            pm2 save
+
+            echo "✅ Deployment completed successfully!"
