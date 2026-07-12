@@ -20,7 +20,7 @@ export class UpdateQuestionDto {
   id!: string;
 
   @IsOptional()
-  @IsEnum(['MCQ', 'GAP_FILL', 'WORD_BOX_MATCH', 'MATCHING', 'QUESTION_ANSWER'])
+  @IsEnum(['MCQ', 'GAP_FILL', 'WORD_BOX_MATCH', 'MATCHING', 'QUESTION_ANSWER', 'ORDERING'])
   type?: string;
 
   @IsOptional()
@@ -37,7 +37,7 @@ export class UpdateQuestionDto {
 }
 
 export class NewQuestionDto {
-  @IsEnum(['MCQ', 'GAP_FILL', 'WORD_BOX_MATCH', 'MATCHING', 'QUESTION_ANSWER'])
+  @IsEnum(['MCQ', 'GAP_FILL', 'WORD_BOX_MATCH', 'MATCHING', 'QUESTION_ANSWER', 'ORDERING'])
   type!: string;
 
   @IsInt()
@@ -50,6 +50,12 @@ export class NewQuestionDto {
   @IsOptional()
   @IsString()
   criterionId?: string; // Add this
+
+  // Client-supplied temporary id so the frontend can reconcile the created
+  // row's real id after an autosave (createMany does not return ids).
+  @IsOptional()
+  @IsString()
+  clientKey?: string;
 }
 
 export class UpdateWordDto {
@@ -101,6 +107,11 @@ export class UpdateTaskDto {
   @IsOptional()
   @IsBoolean()
   isPublic?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  isPremium?: boolean;
 
   @IsOptional()
   @IsEnum(TaskStatus)

@@ -1,7 +1,17 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.service';
 import Stripe from 'stripe';
-import { CreateCheckoutSessionDto } from './dto/payment.dto';
+import {
+  AttachPremiumTasksDto,
+  CreateCheckoutSessionDto,
+  CreatePlanDto,
+  UpdatePlanDto,
+} from './dto/payment.dto';
 import { BillingStatus, SubscriptionPlanType } from 'src/database/prisma-client/browser';
 
 
@@ -1060,5 +1070,226 @@ private getPercent(previous, current) {
       100
     ).toFixed(2),
   );
+}
+
+/* ============================================================
+ * Admin: Package (SubscriptionPlan) management + Stripe sync
+ * ============================================================ */
+
+/**
+ * Create a package in our DB and mirror it to Stripe: one Product + a
+ * recurring monthly and/or annual Price. Price ids are stored so checkout
+ * can reference them.
+ */
+async createPlan(dto: CreatePlanDto) {
+  const existing = await this.prisma.subscriptionPlan.findUnique({
+    where: { type: dto.type },
+  });
+  if (existing) {
+    throw new ConflictException(
+      `A ${dto.type} plan already exists. Update it instead.`,
+    );
+  }
+
+  const currency = (dto.currency || 'usd').toLowerCase();
+
+  let stripeProductId: string | null = null;
+  let stripeMonthlyPriceId: string | null = null;
+  let stripeAnnualPriceId: string | null = null;
+
+  // FREE plans need no Stripe product.
+  if (dto.type !== 'FREE') {
+    const product = await this.stripe.products.create({
+      name: dto.name,
+      description: dto.description,
+      metadata: { planType: dto.type },
+    });
+    stripeProductId = product.id;
+
+    if (dto.monthlyPrice > 0) {
+      const monthly = await this.stripe.prices.create({
+        product: product.id,
+        currency,
+        unit_amount: dto.monthlyPrice,
+        recurring: { interval: 'month' },
+      });
+      stripeMonthlyPriceId = monthly.id;
+    }
+
+    if (dto.annualPrice > 0) {
+      const annual = await this.stripe.prices.create({
+        product: product.id,
+        currency,
+        unit_amount: dto.annualPrice,
+        recurring: { interval: 'year' },
+      });
+      stripeAnnualPriceId = annual.id;
+    }
+  }
+
+  return this.prisma.subscriptionPlan.create({
+    data: {
+      name: dto.name,
+      type: dto.type,
+      monthlyPrice: dto.monthlyPrice,
+      annualPrice: dto.annualPrice,
+      maxClasses: dto.maxClasses,
+      maxStudentsPerClass: dto.maxStudentsPerClass,
+      maxScheduledTasksInClass: dto.maxScheduledTasksInClass,
+      stripeProductId,
+      stripeMonthlyPriceId,
+      stripeAnnualPriceId,
+    },
+  });
+}
+
+/**
+ * Update a package. Name/description changes are pushed to the Stripe
+ * product. Price changes create a NEW Stripe price (prices are immutable)
+ * and archive the previous one.
+ */
+async updatePlan(planId: string, dto: UpdatePlanDto) {
+  const plan = await this.prisma.subscriptionPlan.findUnique({
+    where: { id: planId },
+  });
+  if (!plan) throw new NotFoundException('Plan not found');
+
+  const currency = (dto.currency || 'usd').toLowerCase();
+  const data: any = {};
+
+  if (dto.name !== undefined) data.name = dto.name;
+  if (dto.maxClasses !== undefined) data.maxClasses = dto.maxClasses;
+  if (dto.maxStudentsPerClass !== undefined)
+    data.maxStudentsPerClass = dto.maxStudentsPerClass;
+  if (dto.maxScheduledTasksInClass !== undefined)
+    data.maxScheduledTasksInClass = dto.maxScheduledTasksInClass;
+  if (dto.isActive !== undefined) data.isActive = dto.isActive;
+
+  if (plan.type !== 'FREE') {
+    // Ensure a Stripe product exists (older/seeded plans may lack one).
+    let productId = plan.stripeProductId;
+    if (!productId) {
+      const product = await this.stripe.products.create({
+        name: dto.name ?? plan.name,
+        description: dto.description,
+        metadata: { planType: plan.type },
+      });
+      productId = product.id;
+      data.stripeProductId = productId;
+    } else if (dto.name !== undefined || dto.description !== undefined) {
+      await this.stripe.products.update(productId, {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.description !== undefined
+          ? { description: dto.description }
+          : {}),
+      });
+    }
+
+    if (dto.monthlyPrice !== undefined && dto.monthlyPrice !== plan.monthlyPrice) {
+      data.monthlyPrice = dto.monthlyPrice;
+      if (dto.monthlyPrice > 0) {
+        const price = await this.stripe.prices.create({
+          product: productId,
+          currency,
+          unit_amount: dto.monthlyPrice,
+          recurring: { interval: 'month' },
+        });
+        data.stripeMonthlyPriceId = price.id;
+      }
+      if (plan.stripeMonthlyPriceId) {
+        await this.stripe.prices
+          .update(plan.stripeMonthlyPriceId, { active: false })
+          .catch(() => undefined);
+      }
+    }
+
+    if (dto.annualPrice !== undefined && dto.annualPrice !== plan.annualPrice) {
+      data.annualPrice = dto.annualPrice;
+      if (dto.annualPrice > 0) {
+        const price = await this.stripe.prices.create({
+          product: productId,
+          currency,
+          unit_amount: dto.annualPrice,
+          recurring: { interval: 'year' },
+        });
+        data.stripeAnnualPriceId = price.id;
+      }
+      if (plan.stripeAnnualPriceId) {
+        await this.stripe.prices
+          .update(plan.stripeAnnualPriceId, { active: false })
+          .catch(() => undefined);
+      }
+    }
+  } else {
+    if (dto.monthlyPrice !== undefined) data.monthlyPrice = dto.monthlyPrice;
+    if (dto.annualPrice !== undefined) data.annualPrice = dto.annualPrice;
+  }
+
+  return this.prisma.subscriptionPlan.update({
+    where: { id: planId },
+    data,
+  });
+}
+
+/** Admin list of all plans with their attached premium tasks. */
+async listAdminPlans() {
+  return this.prisma.subscriptionPlan.findMany({
+    orderBy: { monthlyPrice: 'asc' },
+    include: {
+      premiumTasks: {
+        include: {
+          task: {
+            select: { id: true, title: true, type: true, isPremium: true },
+          },
+        },
+      },
+      _count: { select: { subscriptions: true } },
+    },
+  });
+}
+
+/** Attach premium tasks to a package. Only tasks flagged premium qualify. */
+async attachPremiumTasks(planId: string, dto: AttachPremiumTasksDto) {
+  const plan = await this.prisma.subscriptionPlan.findUnique({
+    where: { id: planId },
+  });
+  if (!plan) throw new NotFoundException('Plan not found');
+
+  const tasks = await this.prisma.task.findMany({
+    where: { id: { in: dto.taskIds } },
+    select: { id: true, isPremium: true },
+  });
+
+  const nonPremium = tasks.filter((t) => !t.isPremium);
+  if (nonPremium.length) {
+    throw new BadRequestException(
+      'Only premium tasks can be added to a package',
+    );
+  }
+
+  await this.prisma.planPremiumTask.createMany({
+    data: tasks.map((t) => ({ planId, taskId: t.id })),
+    skipDuplicates: true,
+  });
+
+  return this.getPlanPremiumTasks(planId);
+}
+
+async detachPremiumTask(planId: string, taskId: string) {
+  await this.prisma.planPremiumTask.deleteMany({
+    where: { planId, taskId },
+  });
+  return { success: true };
+}
+
+async getPlanPremiumTasks(planId: string) {
+  return this.prisma.planPremiumTask.findMany({
+    where: { planId },
+    include: {
+      task: {
+        select: { id: true, title: true, type: true, isPremium: true, status: true },
+      },
+    },
+  });
 }
 }

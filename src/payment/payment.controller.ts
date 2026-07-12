@@ -14,7 +14,12 @@ import { PaymentService } from './payment.service';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from 'src/guards/role.guard';
 import { Roles } from 'src/decorator/role.decorator';
-import { CreateCheckoutSessionDto } from './dto/payment.dto';
+import {
+  AttachPremiumTasksDto,
+  CreateCheckoutSessionDto,
+  CreatePlanDto,
+  UpdatePlanDto,
+} from './dto/payment.dto';
 import { Role } from 'src/database/prisma-client/enums';
 
 @Controller('stripe')
@@ -127,5 +132,49 @@ export class PaymentController {
       userId,
       req.user.sub,
     );
+  }
+
+  /// Admin: package (plan) management + Stripe sync ///
+
+  @Get('admin/plans')
+  @Roles([Role.admin])
+  listAdminPlans() {
+    return this.paymentService.listAdminPlans();
+  }
+
+  @Post('admin/plans')
+  @Roles([Role.admin])
+  createPlan(@Body() dto: CreatePlanDto) {
+    return this.paymentService.createPlan(dto);
+  }
+
+  @Patch('admin/plans/:planId')
+  @Roles([Role.admin])
+  updatePlan(@Param('planId') planId: string, @Body() dto: UpdatePlanDto) {
+    return this.paymentService.updatePlan(planId, dto);
+  }
+
+  @Get('admin/plans/:planId/premium-tasks')
+  @Roles([Role.admin])
+  getPlanPremiumTasks(@Param('planId') planId: string) {
+    return this.paymentService.getPlanPremiumTasks(planId);
+  }
+
+  @Post('admin/plans/:planId/premium-tasks')
+  @Roles([Role.admin])
+  attachPremiumTasks(
+    @Param('planId') planId: string,
+    @Body() dto: AttachPremiumTasksDto,
+  ) {
+    return this.paymentService.attachPremiumTasks(planId, dto);
+  }
+
+  @Patch('admin/plans/:planId/premium-tasks/:taskId/detach')
+  @Roles([Role.admin])
+  detachPremiumTask(
+    @Param('planId') planId: string,
+    @Param('taskId') taskId: string,
+  ) {
+    return this.paymentService.detachPremiumTask(planId, taskId);
   }
 }

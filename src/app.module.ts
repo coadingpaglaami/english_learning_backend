@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule } from '@nestjs/config';
@@ -16,11 +17,13 @@ import { StudentModule } from './student/student.module';
 import { BadgeModule } from './badge/badge.module';
 import { AdminModule } from './admin/admin.module';
 import { PaymentModule } from './payment/payment.module';
+import { NotificationModule } from './notification/notification.module';
+import { ReminderModule } from './reminder/reminder.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
     isGlobal: true,
-  }), AuthModule, PrismaModule, MailModule, GuardModule, TaskModule, UploadModule, ClassModule, AttemptModule, CriteriaModule, AnalyticsModule, StudentModule, BadgeModule, AdminModule, PaymentModule],
+  }), ScheduleModule.forRoot(), AuthModule, PrismaModule, MailModule, GuardModule, TaskModule, UploadModule, ClassModule, AttemptModule, CriteriaModule, AnalyticsModule, StudentModule, BadgeModule, AdminModule, PaymentModule, NotificationModule, ReminderModule],
   controllers: [AppController],
   providers: [AppService],
 })

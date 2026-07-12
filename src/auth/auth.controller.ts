@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Patch,
   Post,
   Query,
   Req,
@@ -16,6 +17,7 @@ import type {
   LoginRequestDto,
   ResetPasswordRequestDto,
   SignUpDtoRequestDto,
+  VerifyResetCodeRequestDto,
 } from './dto/auth.dto';
 
 import type { Response } from 'express';
@@ -69,6 +71,11 @@ export class AuthController {
   @Post('forget-password')
   forgetPassword(@Body() dto: ForgetPasswordRequestDto) {
     return this.authService.forgetPassword(dto);
+  }
+
+  @Post('verify-reset-code')
+  verifyResetCode(@Body() dto: VerifyResetCodeRequestDto) {
+    return this.authService.verifyResetCode(dto);
   }
 
   @Post('reset-password')
@@ -190,5 +197,17 @@ export class AuthController {
   @UseGuards(AuthGuard('jwt'))
   async myProfile(@Req() req: any) {
     return this.authService.myProfile(req.user.sub);
+  }
+
+  @Patch('my-profile')
+  @UseGuards(AuthGuard('jwt'))
+  async updateMyProfile(@Req() req: any, @Body() dto: any) {
+    return this.authService.updateMyProfile(req.user.sub, dto);
+  }
+
+  @Post('change-password')
+  @UseGuards(AuthGuard('jwt'))
+  async changePassword(@Req() req: any, @Body() dto: any) {
+    return this.authService.changePassword(req.user.sub, dto);
   }
 }

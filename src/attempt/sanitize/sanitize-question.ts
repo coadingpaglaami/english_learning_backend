@@ -106,6 +106,24 @@ export const sanitizeQuestion = (question: any) => {
         },
       };
 
+    case 'ORDERING': {
+      const items = Array.isArray(config.items) ? config.items : [];
+      // Shuffle a copy so the stored (correct) order is never revealed. Ids are
+      // positional in the shuffled list and carry no ordering information.
+      const shuffled = [...items]
+        .map((text: any) => ({ text, sort: Math.random() }))
+        .sort((a, b) => a.sort - b.sort)
+        .map((entry, index) => ({ id: String(index), text: entry.text }));
+
+      return {
+        ...question,
+        config: {
+          question: config.question,
+          items: shuffled,
+        },
+      };
+    }
+
     case 'QUESTION_ANSWER':
       return {
         ...question,

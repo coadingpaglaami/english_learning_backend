@@ -20,10 +20,16 @@ export type LoginRequestDto = Pick<User, 'email' | 'password'>;
 
 export type ForgetPasswordRequestDto = Pick<User, 'email'>;
 
+export type VerifyResetCodeRequestDto = {
+  email: string;
+  code: string;
+};
+
 export type ResetPasswordRequestDto = {
   password: string;
   confirmPassword: string;
-  token: string;
+  // Short-lived token issued by the verify-reset-code step
+  resetToken: string;
 };
 
 export type UserResponseDto = Pick<

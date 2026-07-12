@@ -895,6 +895,159 @@ async exportPerformanceData() {
   return rows.map((row) => row.join(',')).join('\n');
 }
 
+// ── Reports page — one CSV export per real report type ──────────────────
+
+private toCsv(rows: (string | number)[][]) {
+  const escape = (v: string | number) => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return rows.map((row) => row.map(escape).join(',')).join('\n');
+}
+
+async exportReport(type: string): Promise<string> {
+  switch (type) {
+    case 'user_activity':
+      return this.exportUserActivityReport();
+    case 'teacher_performance':
+      return this.exportTeacherPerformanceReport();
+    case 'learner_progress':
+      return this.exportLearnerProgressReport();
+    case 'task_log':
+      return this.exportTaskLogReport();
+    case 'platform_engagement':
+      return this.exportPlatformEngagementReport();
+    case 'revenue_subscriptions':
+      return this.exportRevenueReport();
+    default:
+      throw new NotFoundException('Unknown report type');
+  }
+}
+
+private async exportUserActivityReport() {
+  const users = await this.prisma.user.findMany({
+    orderBy: { createdAt: 'desc' },
+    select: {
+      email: true,
+      firstName: true,
+      lastName: true,
+      role: true,
+      isActive: true,
+      createdAt: true,
+    },
+  });
+
+  const rows: (string | number)[][] = [
+    ['Email', 'First Name', 'Last Name', 'Role', 'Active', 'Joined At'],
+  ];
+  for (const u of users) {
+    rows.push([
+      u.email,
+      u.firstName,
+      u.lastName,
+      u.role,
+      u.isActive ? 'Yes' : 'No',
+      u.createdAt.toISOString(),
+    ]);
+  }
+  return this.toCsv(rows);
+}
+
+private async exportTeacherPerformanceReport() {
+  const performance = await this.getPerformance();
+  const rows: (string | number)[][] = [
+    ['Teacher', 'Students', 'Tasks Created', 'Avg Score'],
+  ];
+  for (const t of performance.topTeachers) {
+    rows.push([t.name, t.students, t.tasksCreated, t.avgScore]);
+  }
+  return this.toCsv(rows);
+}
+
+private async exportLearnerProgressReport() {
+  const performance = await this.getPerformance();
+  const rows: (string | number)[][] = [['Month', 'Avg Score']];
+  for (const m of performance.learnerProgressData) {
+    rows.push([m.month, m.score]);
+  }
+  return this.toCsv(rows);
+}
+
+private async exportTaskLogReport() {
+  const tasks = await this.prisma.task.findMany({
+    orderBy: { createdAt: 'desc' },
+    select: {
+      title: true,
+      type: true,
+      status: true,
+      isPublic: true,
+      createdAt: true,
+      createdBy: { select: { email: true } },
+    },
+  });
+
+  const rows: (string | number)[][] = [
+    ['Title', 'Type', 'Status', 'Public', 'Created By', 'Created At'],
+  ];
+  for (const t of tasks) {
+    rows.push([
+      t.title,
+      t.type,
+      t.status,
+      t.isPublic ? 'Yes' : 'No',
+      t.createdBy.email,
+      t.createdAt.toISOString(),
+    ]);
+  }
+  return this.toCsv(rows);
+}
+
+private async exportPlatformEngagementReport() {
+  const analytics = await this.getPlatformAnalytics();
+  const rows: (string | number)[][] = [['Metric', 'Value', 'Change %']];
+  for (const card of analytics.statCards) {
+    rows.push([card.title, card.value, card.change]);
+  }
+  rows.push([]);
+  rows.push(['Day', 'Active Users', 'Task Completions']);
+  for (const d of analytics.engagementData) {
+    rows.push([d.day, d.activeUsers, d.taskCompletions]);
+  }
+  return this.toCsv(rows);
+}
+
+private async exportRevenueReport() {
+  const subscriptions = await this.prisma.userSubscription.findMany({
+    orderBy: { createdAt: 'desc' },
+    include: {
+      user: { select: { email: true } },
+      plan: { select: { name: true, type: true } },
+    },
+  });
+
+  const rows: (string | number)[][] = [
+    [
+      'User Email',
+      'Plan',
+      'Billing Cycle',
+      'Billing Status',
+      'Final Price',
+      'Current Period End',
+    ],
+  ];
+  for (const s of subscriptions) {
+    rows.push([
+      s.user.email,
+      s.plan.name,
+      s.billingCycle ?? '',
+      s.billingStatus,
+      (s.finalPrice / 100).toFixed(2),
+      s.currentPeriodEnd ? s.currentPeriodEnd.toISOString() : '',
+    ]);
+  }
+  return this.toCsv(rows);
+}
+
 async getPlatformAnalytics() {
   const now = new Date();
 

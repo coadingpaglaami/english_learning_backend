@@ -21,6 +21,8 @@ model User {
   studentMonthlyStats    StudentMonthlyStats[]
   studentSkillProgresses StudentSkillProgress[]
   userSubscription       UserSubscription?
+  passwordResetCodes     PasswordResetCode[]
+  notifications          Notification[]
 }
 
 model TeacherProfile {

@@ -26,7 +26,7 @@ export enum AwardingBody {
 }
 
 export class QuestionDto {
-  @IsEnum(['MCQ', 'GAP_FILL', 'WORD_BOX_MATCH', 'MATCHING', 'QUESTION_ANSWER'])
+  @IsEnum(['MCQ', 'GAP_FILL', 'WORD_BOX_MATCH', 'MATCHING', 'QUESTION_ANSWER', 'ORDERING'])
   type!: string;
 
   @IsInt()
@@ -63,6 +63,12 @@ export class CreateTaskDto {
   @IsOptional()
   @IsBoolean()
   isPublic?: boolean;
+
+  // Admin-only: flag this task as premium (gated behind a package).
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  isPremium?: boolean;
 
   @IsOptional()
   @IsString()
@@ -148,4 +154,9 @@ export class TaskQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(TaskStatus)
   status?: TaskStatus;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  isPremium?: boolean;
 }

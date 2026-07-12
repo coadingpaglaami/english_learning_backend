@@ -88,6 +88,8 @@ export class TaskService {
         type,
         status,
         isPublic: role === 'admin',
+        // Only admins may mark a task premium.
+        isPremium: role === 'admin' ? (dto.isPremium ?? false) : false,
         createdById: userId,
 
         /**
@@ -230,17 +232,27 @@ export class TaskService {
 
       /**
        * append questions
+       *
+       * Created one-by-one (instead of createMany) so we can echo each new
+       * row's real id back to the client keyed by its clientKey. This lets the
+       * frontend autosave without re-inserting the same question on the next save.
        */
+      const createdQuestions: { clientKey: string; id: string }[] = [];
       if (dto.newQuestions?.length) {
-        await tx.question.createMany({
-          data: dto.newQuestions.map((q) => ({
-            taskId,
-            type: q.type as QuestionType,
-            order: q.order,
-            config: q.config,
-            criterionId: q.criterionId,
-          })),
-        });
+        for (const q of dto.newQuestions) {
+          const created = await tx.question.create({
+            data: {
+              taskId,
+              type: q.type as QuestionType,
+              order: q.order,
+              config: q.config,
+              criterionId: q.criterionId,
+            },
+          });
+          if (q.clientKey) {
+            createdQuestions.push({ clientKey: q.clientKey, id: created.id });
+          }
+        }
       }
 
       /**
@@ -323,8 +335,9 @@ export class TaskService {
           dto.content !== undefined ||
           dto.entryType !== undefined ||
           dto.removePassageImage ||
-          newPassageImageUrl !== undefined;
-        dto.awardingBody !== undefined || dto.passMark !== undefined;
+          newPassageImageUrl !== undefined ||
+          dto.awardingBody !== undefined ||
+          dto.passMark !== undefined;
 
         if (shouldUpdateReading) {
           if (existingTask.readingContent) {
@@ -395,6 +408,10 @@ export class TaskService {
             role === 'admin'
               ? (dto.isPublic ?? existingTask.isPublic)
               : existingTask.isPublic,
+          isPremium:
+            role === 'admin'
+              ? (dto.isPremium ?? existingTask.isPremium)
+              : existingTask.isPremium,
           status:
             role === 'admin'
               ? (dto.status ?? existingTask.status)
@@ -402,7 +419,14 @@ export class TaskService {
         },
       });
 
-      return tx.task.findUnique({
+      /**
+       * Re-sequence the whole task's questions grouped by type so that after
+       * adds/deletes the ordering is always contiguous (1..N) with all MCQs
+       * first, then all gap-fills, etc. — no gaps, no cross-type collisions.
+       */
+      await this.normalizeTaskQuestionOrder(tx, taskId);
+
+      const task = await tx.task.findUnique({
         where: { id: taskId },
         include: {
           readingContent: true,
@@ -413,7 +437,50 @@ export class TaskService {
           },
         },
       });
+
+      return { ...task, createdQuestions };
     });
+  }
+
+  // Deterministic display/answer ordering: questions are grouped by type in this
+  // priority, and numbered 1..N across the whole task.
+  private static readonly QUESTION_TYPE_ORDER: QuestionType[] = [
+    QuestionType.MCQ,
+    QuestionType.GAP_FILL,
+    QuestionType.WORD_BOX_MATCH,
+    QuestionType.MATCHING,
+    QuestionType.QUESTION_ANSWER,
+    QuestionType.ORDERING,
+  ];
+
+  private async normalizeTaskQuestionOrder(tx: any, taskId: string) {
+    const questions = await tx.question.findMany({
+      where: { taskId },
+      select: { id: true, type: true, order: true, createdAt: true },
+    });
+
+    const priority = (t: QuestionType) => {
+      const idx = TaskService.QUESTION_TYPE_ORDER.indexOf(t);
+      return idx === -1 ? TaskService.QUESTION_TYPE_ORDER.length : idx;
+    };
+
+    const sorted = [...questions].sort((a, b) => {
+      const pa = priority(a.type);
+      const pb = priority(b.type);
+      if (pa !== pb) return pa - pb;
+      if (a.order !== b.order) return a.order - b.order;
+      return a.createdAt.getTime() - b.createdAt.getTime();
+    });
+
+    for (let i = 0; i < sorted.length; i++) {
+      const desired = i + 1;
+      if (sorted[i].order !== desired) {
+        await tx.question.update({
+          where: { id: sorted[i].id },
+          data: { order: desired },
+        });
+      }
+    }
   }
 
   async addQuestionsToTask(taskId: string, questions: AddQuestionsDto) {
@@ -468,6 +535,7 @@ export class TaskService {
     const where: any = {};
 
     if (status) where.status = status;
+    if (query.isPremium !== undefined) where.isPremium = query.isPremium;
 
     if (role === 'teacher') {
       where.OR = [
@@ -476,11 +544,18 @@ export class TaskService {
       ];
     }
 
-    const [data, total] = await this.prisma.$transaction([
+    const [rawData, total] = await this.prisma.$transaction([
       this.prisma.task.findMany({
         where,
         include: {
           createdBy: { select: { email: true, firstName: true, lastName: true } },
+          // Teachers only see which of THEIR OWN classes use this task
+          // (a shared/public task may be attached to other teachers'
+          // classes too, which shouldn't be exposed). Admins see all.
+          classTasks: {
+            where: role === 'teacher' ? { class: { teacherId: userId } } : undefined,
+            select: { class: { select: { id: true, name: true } } },
+          },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
@@ -489,6 +564,11 @@ export class TaskService {
 
       this.prisma.task.count({ where }),
     ]);
+
+    const data = rawData.map(({ classTasks, ...task }) => ({
+      ...task,
+      classes: classTasks.map((ct) => ct.class),
+    }));
 
     return {
       data,

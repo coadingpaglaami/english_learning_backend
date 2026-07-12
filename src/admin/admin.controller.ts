@@ -2,6 +2,7 @@ import { Controller, Get, Param, Query, Res, UseGuards } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from 'src/guards/role.guard';
+import { Roles } from 'src/decorator/role.decorator';
 import { AdminUsersQueryDto } from './dto/admin.dto';
 import type { Response } from 'express';
 
@@ -45,6 +46,20 @@ async exportPerformance(@Res() res: Response) {
 @Get('analytics/platform')
 getPlatformAnalytics() {
   return this.adminService.getPlatformAnalytics();
+}
+
+@Get('reports/export')
+@Roles(['admin'])
+async exportReport(@Query('type') type: string, @Res() res: Response) {
+  const csv = await this.adminService.exportReport(type);
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${type}.csv"`,
+  );
+
+  return res.send(csv);
 }
 
 }

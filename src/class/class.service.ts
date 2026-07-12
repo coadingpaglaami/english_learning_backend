@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.service';
 import {
@@ -469,12 +470,63 @@ export class ClassService {
     const cls = await this.prisma.class.findUnique({ where: { id: classId } });
     if (!cls) throw new NotFoundException('Class not found');
 
+    // Premium tasks are teacher-gated: the class's teacher must be on a package
+    // that includes the task.
+    await this.assertTeacherCanUsePremiumTasks(cls.teacherId, taskIds);
+
     await this.prisma.classTask.createMany({
       data: taskIds.map((taskId) => ({ classId, taskId })),
       skipDuplicates: true,
     });
 
     return this.getClassTasks(classId);
+  }
+
+  /**
+   * Teacher-gated premium access: a premium task may only be added to a class
+   * if the class's teacher has an active package that includes that task.
+   */
+  private async assertTeacherCanUsePremiumTasks(
+    teacherId: string,
+    taskIds: string[],
+  ) {
+    if (!taskIds?.length) return;
+
+    const premiumTasks = await this.prisma.task.findMany({
+      where: { id: { in: taskIds }, isPremium: true },
+      select: { id: true, title: true },
+    });
+    if (!premiumTasks.length) return;
+
+    const sub = await this.prisma.userSubscription.findUnique({
+      where: { userId: teacherId },
+      select: { planId: true, billingStatus: true },
+    });
+
+    const activeStatuses = ['ACTIVE', 'TRIALING', 'CANCELING'];
+    if (!sub || !activeStatuses.includes(sub.billingStatus)) {
+      throw new ForbiddenException(
+        'An active package is required to use premium tasks.',
+      );
+    }
+
+    const allowed = await this.prisma.planPremiumTask.findMany({
+      where: {
+        planId: sub.planId,
+        taskId: { in: premiumTasks.map((t) => t.id) },
+      },
+      select: { taskId: true },
+    });
+    const allowedSet = new Set(allowed.map((a) => a.taskId));
+
+    const blocked = premiumTasks.filter((t) => !allowedSet.has(t.id));
+    if (blocked.length) {
+      throw new ForbiddenException(
+        `Your package does not include these premium tasks: ${blocked
+          .map((t) => t.title)
+          .join(', ')}`,
+      );
+    }
   }
 
   async getClassTasks(classId: string) {

@@ -121,6 +121,23 @@ export const judgeAnswer = (
       return result.isCorrect;
     }
 
+    case 'ORDERING': {
+      // Student submits the item texts in their chosen order.
+      if (!Array.isArray(studentData)) return false;
+
+      const correctItems = Array.isArray(parsedConfig.items)
+        ? parsedConfig.items
+        : [];
+      if (correctItems.length === 0) return false;
+      if (studentData.length !== correctItems.length) return false;
+
+      // Correct only if every position matches the stored order exactly.
+      return correctItems.every(
+        (item: any, index: number) =>
+          normalizeValue(studentData[index]) === normalizeValue(item),
+      );
+    }
+
     case 'WORD_BOX_MATCH': {
       if (!Array.isArray(studentData)) return false;
 

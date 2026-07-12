@@ -5,6 +5,7 @@ model Task {
   type            TaskType
   status          TaskStatus   @default(DRAFT)
   isPublic        Boolean      @default(false)
+  isPremium       Boolean      @default(false)
   createdById     String
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
@@ -15,6 +16,7 @@ model Task {
   vocabularyItems WordItem[]
   classTasks      ClassTask[]
   attempts        Attempt[]
+  premiumInPlans  PlanPremiumTask[]
 }
 
 enum EntryType {
@@ -87,4 +89,5 @@ enum QuestionType {
   WORD_BOX_MATCH
   MATCHING
   QUESTION_ANSWER
+  ORDERING
 }

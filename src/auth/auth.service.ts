@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.service';
 import { JwtService } from '@nestjs/jwt';
+import { randomInt } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { MailService } from 'src/mail/mail.service';
 import { calculateLevel } from 'common/utils/calculationxp';
@@ -202,46 +203,133 @@ export class AuthService {
     return { user, ...tokens };
   }
 
+  private static readonly RESET_CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+  private static readonly RESET_MAX_ATTEMPTS = 5;
+
+  /**
+   * Step 1 — request a reset code. Always returns a generic message so we never
+   * reveal whether an email is registered. If the user exists we generate a
+   * 6-digit code, store its hash, and email the plaintext code.
+   */
   async forgetPassword(dto: any) {
+    const genericResponse = {
+      message: 'If an account exists for this email, a reset code has been sent.',
+    };
+
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
 
-    if (!user) throw new NotFoundException();
+    if (!user) return genericResponse;
 
-    const token = await this.jwtService.signAsync(
-      { email: user.email },
-      { expiresIn: '15m' },
-    );
+    // Generate a 6-digit numeric code
+    const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
+    const codeHash = await bcrypt.hash(code, 10);
+    const expiresAt = new Date(Date.now() + AuthService.RESET_CODE_TTL_MS);
 
-    const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+    // Invalidate any previous codes for this user, then store the new one
+    await this.prisma.$transaction([
+      this.prisma.passwordResetCode.deleteMany({ where: { userId: user.id } }),
+      this.prisma.passwordResetCode.create({
+        data: { userId: user.id, codeHash, expiresAt },
+      }),
+    ]);
 
-    await this.mailService.sendResetPasswordMail(user.email, resetLink);
+    await this.mailService.sendResetPasswordCode(user.email, code);
 
-    return {
-      message: 'Reset password link sent',
-    };
+    return genericResponse;
   }
 
+  /**
+   * Step 2 — verify the code. On success returns a short-lived reset token that
+   * authorizes the actual password change (so the code is only checked once).
+   */
+  async verifyResetCode(dto: any) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+    if (!user) throw new BadRequestException('Invalid or expired code');
+
+    const record = await this.prisma.passwordResetCode.findFirst({
+      where: { userId: user.id, consumedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!record || record.expiresAt < new Date()) {
+      throw new BadRequestException('Invalid or expired code');
+    }
+
+    if (record.attempts >= AuthService.RESET_MAX_ATTEMPTS) {
+      throw new BadRequestException(
+        'Too many attempts. Please request a new code.',
+      );
+    }
+
+    const isMatch = await bcrypt.compare(String(dto.code ?? ''), record.codeHash);
+    if (!isMatch) {
+      await this.prisma.passwordResetCode.update({
+        where: { id: record.id },
+        data: { attempts: { increment: 1 } },
+      });
+      throw new BadRequestException('Invalid or expired code');
+    }
+
+    const resetToken = await this.jwtService.signAsync(
+      { sub: user.id, email: user.email, purpose: 'password_reset', rid: record.id },
+      { secret: process.env.JWT_SECRET, expiresIn: '10m' },
+    );
+
+    return { message: 'Code verified', resetToken };
+  }
+
+  /**
+   * Step 3 — set the new password using the reset token from step 2.
+   */
   async resetPassword(dto: any) {
     if (dto.password !== dto.confirmPassword) {
       throw new BadRequestException('Passwords do not match');
     }
 
-    const payload = await this.jwtService.verifyAsync(dto.token, {
-      secret: process.env.JWT_SECRET,
+    let payload: {
+      sub?: string;
+      email?: string;
+      purpose?: string;
+      rid?: string;
+    };
+    try {
+      payload = await this.jwtService.verifyAsync(dto.resetToken, {
+        secret: process.env.JWT_SECRET,
+      });
+    } catch {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    if (payload.purpose !== 'password_reset' || !payload.sub || !payload.rid) {
+      throw new BadRequestException('Invalid reset token');
+    }
+
+    // The code must still be unconsumed — prevents token replay
+    const record = await this.prisma.passwordResetCode.findUnique({
+      where: { id: payload.rid },
     });
+    if (!record || record.consumedAt || record.userId !== payload.sub) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
-    await this.prisma.user.update({
-      where: { email: payload.email },
-      data: { password: hashedPassword },
-    });
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: payload.sub },
+        data: { password: hashedPassword },
+      }),
+      this.prisma.passwordResetCode.update({
+        where: { id: record.id },
+        data: { consumedAt: new Date() },
+      }),
+    ]);
 
-    return {
-      message: 'Password reset successful',
-    };
+    return { message: 'Password reset successful' };
   }
 
   async refreshToken(dto: any) {
@@ -393,6 +481,8 @@ export class AuthService {
       role: "student",
       firstName: user.firstName,
       lastName: user.lastName,
+      email: user.email,
+      avatarUrl: user.avatarUrl,
       username: user.student.username,
       totalXp: user.student.totalXp,
 
@@ -410,6 +500,7 @@ export class AuthService {
       firstName: user.firstName,
       lastName: user.lastName,
       email: user.email,
+      avatarUrl: user.avatarUrl,
       teacherProfile: {
         subject: user.teacher.subject,
         institution: user.teacher.institution,
@@ -424,6 +515,68 @@ export class AuthService {
     firstName: user.firstName,
     lastName: user.lastName,
     email: user.email,
+    avatarUrl: user.avatarUrl,
   };
 }
+
+  /**
+   * Update the caller's own name (+ teacher-only institution/bio). Email is
+   * intentionally not editable here — changing it needs its own
+   * verification flow, which is out of scope for a profile-settings form.
+   */
+  async updateMyProfile(userId: string, dto: any) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        firstName: dto.firstName ?? user.firstName,
+        lastName: dto.lastName ?? user.lastName,
+      },
+    });
+
+    if (user.role === 'teacher' && (dto.institution !== undefined || dto.bio !== undefined)) {
+      await this.prisma.teacherProfile.update({
+        where: { userId },
+        data: {
+          ...(dto.institution !== undefined ? { institution: dto.institution } : {}),
+          ...(dto.bio !== undefined ? { bio: dto.bio } : {}),
+        },
+      });
+    }
+
+    return this.myProfile(userId);
+  }
+
+  /**
+   * Change password while authenticated. If the account has no password yet
+   * (e.g. Google-only signup), currentPassword is not required.
+   */
+  async changePassword(userId: string, dto: any) {
+    if (dto.newPassword !== dto.confirmPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    if (user.password) {
+      if (!dto.currentPassword) {
+        throw new BadRequestException('Current password is required');
+      }
+      const isMatch = await bcrypt.compare(dto.currentPassword, user.password);
+      if (!isMatch) {
+        throw new UnauthorizedException('Current password is incorrect');
+      }
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword },
+    });
+
+    return { message: 'Password updated successfully' };
+  }
 }
